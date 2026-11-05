@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>줍줍매매 — TQQQ F&G 매매가이드</title>
+<meta name="description" content="공포탐욕지수(F&G)와 VIX로 TQQQ 분할매수(B1~B5)·분할매도(S1~S3) 타이밍을 알려주고 매매 기록을 이 브라우저에 저장하는 도구입니다.">
+<meta name="theme-color" content="#3182f6">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+        integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g"
+        crossorigin="anonymous"></script>
+<link rel="stylesheet" href="style.css">
+<script>
+  // 첫 화면이 번쩍이지 않도록 저장된 테마를 먼저 적용
+  try {
+    var s = JSON.parse(localStorage.getItem('buythedip_v1') || '{}');
+    if (s.opts && s.opts.theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  } catch (e) {}
+</script>
+</head>
+<body>
+
+<div class="app" id="mainApp">
+
+  <!-- 헤더 -->
+  <div class="app-header">
+    <div class="brand">
+      <div class="brand-logo">F&amp;G</div>
+      <div>줍줍매매<span class="brand-sub">TQQQ</span></div>
+    </div>
+    <div class="header-btns">
+      <button class="icon-btn" id="refreshBtn" data-act="refresh" title="시세 갱신" aria-label="시세 갱신">
+        <svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114-3l2 3M20 15a8 8 0 01-14 3l-2-3"/>
+        </svg>
+      </button>
+      <button class="icon-btn" data-act="open-options" title="옵션" aria-label="옵션">
+        <svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1A1.7 1.7 0 004.6 9a1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 시장 전광판 -->
+  <div class="board">
+    <div class="board-grid">
+      <div class="board-item">
+        <div class="label">Fear &amp; Greed</div>
+        <div class="value">
+          <span id="fgVal">—</span>
+          <span class="sub" id="fgEmoji"></span>
+        </div>
+        <div class="fg-rating neutral" id="fgRating">—</div>
+      </div>
+      <div class="board-item">
+        <div class="label">VIX</div>
+        <div class="value"><span id="vixVal">—</span></div>
+      </div>
+      <div class="board-item">
+        <div class="label">TQQQ</div>
+        <div class="value">$<span id="tqqqVal">—</span></div>
+      </div>
+      <div class="board-item">
+        <div class="label">USD/KRW</div>
+        <div class="value"><span id="fxVal">—</span><span class="sub">원</span></div>
+      </div>
+    </div>
+    <div class="board-meta" id="boardMeta">—</div>
+  </div>
+
+  <!-- 탭 -->
+  <div class="tabs">
+    <div class="tab active" data-act="tab" data-tab="dashboard">
+      <svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 14h7v7H3z"/></svg>
+      대시보드
+    </div>
+    <div class="tab" data-act="tab" data-tab="records">
+      <svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 12h6M9 16h4"/></svg>
+      매매기록
+    </div>
+  </div>
+
+  <!-- 회차 선택 -->
+  <div class="acct-row">
+    <div class="select" id="acctSelect" data-act="toggle-select">
+      <span id="acctLabel">회차 없음</span>
+      <div class="select-dropdown" id="acctDropdown"></div>
+    </div>
+    <button class="btn-add" data-act="open-add-round">
+      <svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+      추가
+    </button>
+  </div>
+
+  <div class="empty-hint hidden" id="emptyHint">
+    아직 회차가 없어요. 오른쪽 <b>+ 추가</b>를 눌러 첫 회차를 만들어 주세요.
+  </div>
+
+  <!-- ──────── 대시보드 탭 ──────── -->
+  <div id="tabDashboard">
+
+    <div class="card">
+      <div class="card-title">📊 포지션 요약</div>
+      <div class="summary-stats">
+        <div class="stat"><div class="k">총 투자금</div><div class="v" id="sumInvest">—</div></div>
+        <div class="stat"><div class="k">평가금액</div><div class="v" id="sumEval">—</div></div>
+        <div class="stat"><div class="k">투자시드</div><div class="v" id="sumSeed">—</div></div>
+        <div class="stat"><div class="k">평가차익</div><div class="v" id="sumGain">—</div></div>
+        <div class="stat"><div class="k">수익률</div><div class="v" id="sumProfitPct">—</div></div>
+        <div class="stat"><div class="k">평균매수가</div><div class="v" id="sumAvg">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎯 진행단계</div>
+      <div class="stage-label">매수</div>
+      <div class="stages-row" id="buyStages"></div>
+      <div class="stage-label" style="margin-top:10px">매도</div>
+      <div class="stages-row" id="sellStages"></div>
+      <div class="status-line" id="statusLine">회차를 추가하면 현재 상태를 알려드려요</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📈 자금 흐름
+        <span class="card-title-sub">투자시드 vs 평가금</span>
+      </div>
+      <div class="chart-wrap"><canvas id="dashChart"></canvas></div>
+    </div>
+
+  </div>
+
+  <!-- ──────── 매매기록 탭 ──────── -->
+  <div id="tabRecords" class="hidden">
+
+    <!-- 매수 섹션 -->
+    <div class="trade-section">
+      <div class="trade-header open" data-act="toggle-section" data-body="buyBody">
+        <div class="trade-header-l">
+          <h3>🛒 Buy</h3>
+          <span class="count" id="buyCount">0/5</span>
+        </div>
+        <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </div>
+      <div class="trade-body open" id="buyBody">
+        <div class="trade-row header">
+          <div>단계</div><div>매매일</div><div>가격/수량</div><div>매수비중</div><div></div>
+        </div>
+        <div id="buyRows"></div>
+      </div>
+    </div>
+
+    <!-- 매도 섹션 -->
+    <div class="trade-section">
+      <div class="trade-header open" data-act="toggle-section" data-body="sellBody">
+        <div class="trade-header-l">
+          <h3>💰 Sell</h3>
+          <span class="count sell-c" id="sellCount">0/3</span>
+        </div>
+        <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </div>
+      <div class="trade-body open" id="sellBody">
+        <div class="trade-row header">
+          <div>단계</div><div>매매일</div><div>가격/수량</div><div>매도비중</div><div></div>
+        </div>
+        <div id="sellRows"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="footer-note">
+    기록은 이 브라우저(localStorage)에만 저장되고 서버로 보내지 않아요. 브라우저 데이터를 지우면 사라지니
+    옵션의 <b>백업 내보내기</b>를 가끔 해두세요.<br>
+    참고용 기록 도구이며 투자 권유가 아닙니다. 투자 판단과 책임은 본인에게 있습니다.<br>
+    <a href="https://mzmzkgu.github.io/jupjup/">← 소소한 재테크 작업실로</a>
+  </p>
+
+</div>
+
+<!-- ═══════════ 모달: 매매 입력 ═══════════ -->
+<div class="modal-bg" id="tradeModalBg" data-act="bg-close" data-close="tradeModalBg">
+  <div class="modal">
+    <h3 id="tradeModalTitle">매매 기록</h3>
+    <div class="field"><label for="tDate">매매일</label><input type="date" id="tDate"></div>
+    <div class="field"><label for="tPrice">매매가격 ($)</label><input type="number" inputmode="decimal" step="0.01" min="0" id="tPrice" placeholder="예: 46.56"></div>
+    <div class="field"><label for="tQty">수량 (주)</label><input type="number" inputmode="decimal" step="1" min="0" id="tQty" placeholder="예: 14"></div>
+    <div class="field"><label for="tFx">환율 (원/$)</label><input type="number" inputmode="decimal" step="0.1" min="0" id="tFx" placeholder="자동"></div>
+    <div class="field">
+      <label>F&amp;G / VIX (기록시점)</label>
+      <div class="field-pair">
+        <input type="number" inputmode="decimal" step="0.1" id="tFg" placeholder="F&amp;G" aria-label="F&amp;G">
+        <input type="number" inputmode="decimal" step="0.01" id="tVix" placeholder="VIX" aria-label="VIX">
+      </div>
+      <div class="hint">새 기록은 현재 시장값이 자동으로 채워져요</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" data-act="close-modal" data-close="tradeModalBg">취소</button>
+      <button class="btn-danger" id="tradeDeleteBtn" data-act="delete-trade">삭제</button>
+      <button class="btn-primary" data-act="save-trade">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 모달: 회차 추가 ═══════════ -->
+<div class="modal-bg" id="addRoundBg" data-act="bg-close" data-close="addRoundBg">
+  <div class="modal">
+    <h3>+ 새 회차 추가</h3>
+    <div class="field">
+      <label for="newRoundName">회차 이름</label>
+      <input type="text" id="newRoundName" maxlength="40" placeholder="예: 3차(261017)">
+    </div>
+    <div class="field">
+      <label for="newRoundSeed">총 시드 (USD)</label>
+      <input type="number" inputmode="decimal" id="newRoundSeed" min="0" placeholder="10000">
+      <div class="hint">B1~B5 매수 비중(10·15·20·25·30%)을 이 금액 기준으로 계산해요</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" data-act="close-modal" data-close="addRoundBg">취소</button>
+      <button class="btn-primary" data-act="submit-add-round">추가</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 모달: 옵션 ═══════════ -->
+<div class="modal-bg" id="optBg" data-act="bg-close" data-close="optBg">
+  <div class="modal">
+    <h3>⚙️ 옵션</h3>
+
+    <div class="opt-row">
+      <div class="opt-info"><div class="t">다크 모드</div><div class="s">테마 전환</div></div>
+      <label class="switch"><input type="checkbox" id="optDark"><span class="switch-slider"></span></label>
+    </div>
+
+    <div class="opt-row">
+      <div class="opt-info"><div class="t">차트 통화</div><div class="s">대시보드 기준</div></div>
+      <div class="seg" id="segCurrency">
+        <button data-act="set-currency" data-v="USD" class="active">$</button>
+        <button data-act="set-currency" data-v="KRW">₩</button>
+      </div>
+    </div>
+
+    <div class="field opt-first">
+      <label for="optSeed">총 시드 (USD) — 현재 회차</label>
+      <input type="number" inputmode="decimal" id="optSeed" min="0" placeholder="10000">
+    </div>
+
+    <div class="opt-group">
+      <div class="opt-group-title">현재 회차</div>
+      <div class="btn-row">
+        <button class="btn-ghost" data-act="rename-round">이름 변경</button>
+        <button class="btn-danger" data-act="delete-round">회차 삭제</button>
+      </div>
+    </div>
+
+    <div class="opt-group">
+      <div class="opt-group-title">백업</div>
+      <div class="btn-row">
+        <button class="btn-ghost" data-act="export-json">내보내기</button>
+        <button class="btn-ghost" data-act="import-json">가져오기</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+      <div class="hint">모든 회차를 JSON 파일로 저장하고, 다른 기기·브라우저로 옮길 수 있어요</div>
+    </div>
+
+    <div class="opt-group">
+      <div class="opt-group-title">구글 시트에서 가져오기 (1회)</div>
+      <input type="text" id="optScriptUrl" class="plain-input" placeholder="https://script.google.com/macros/s/.../exec" autocapitalize="off" autocomplete="off">
+      <div class="btn-row">
+        <button class="btn-ghost" data-act="import-sheet">시트 기록 가져오기</button>
+      </div>
+      <div class="hint">예전 Apps Script 주소로 시트의 회차를 읽어 와서 이 브라우저에 새로 저장해요. 시트는 바뀌지 않아요</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" data-act="close-modal" data-close="optBg">닫기</button>
+      <button class="btn-primary" data-act="save-options">저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
