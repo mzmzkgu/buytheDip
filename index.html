@@ -7,6 +7,7 @@
 <meta name="description" content="공포탐욕지수(F&G)와 VIX로 TQQQ 분할매수(B1~B5)·분할매도(S1~S3) 타이밍을 알려주고 매매 기록을 이 브라우저에 저장하는 도구입니다.">
 <meta name="theme-color" content="#3182f6">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 
 <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
@@ -28,7 +29,7 @@
   <!-- 헤더 -->
   <div class="app-header">
     <div class="brand">
-      <div class="brand-logo">F&amp;G</div>
+      <div class="brand-logo">줍줍</div>
       <div>줍줍매매<span class="brand-sub">TQQQ</span><span class="mode-chip" id="modeChip" title="저장 위치">로컬</span></div>
     </div>
     <div class="header-btns">
@@ -45,31 +46,38 @@
     </div>
   </div>
 
-  <!-- 시장 전광판 -->
+  <!-- 시장 현황 -->
   <div class="board">
-    <div class="board-grid">
-      <div class="board-item">
-        <div class="label">Fear &amp; Greed</div>
-        <div class="value">
-          <span id="fgVal">—</span>
-          <span class="sub" id="fgEmoji"></span>
+    <div class="tile-grid">
+      <div class="tile">
+        <div class="tile-label">Fear &amp; Greed</div>
+        <div class="tile-viz gauge" id="fgGauge"></div>
+        <div class="tile-main"><span class="num" id="fgVal">—</span><span class="fg-rating neutral" id="fgRating">—</span></div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">VIX</div>
+        <div class="tile-viz">
+          <div class="vixbar">
+            <div class="vix-track"></div>
+            <span class="vix-marker" id="vixMarker"></span>
+            <i class="vix-tick" style="left:25%"></i><i class="vix-tick" style="left:50%"></i><i class="vix-tick" style="left:75%"></i>
+            <div class="vix-scale"><span style="left:25%">20</span><span style="left:50%">30</span><span style="left:75%">40</span></div>
+          </div>
         </div>
-        <div class="fg-rating neutral" id="fgRating">—</div>
+        <div class="tile-main"><span class="num" id="vixVal">—</span><span class="fg-rating neutral" id="vixState"></span></div>
       </div>
-      <div class="board-item">
-        <div class="label">VIX</div>
-        <div class="value"><span id="vixVal">—</span></div>
+      <div class="tile">
+        <div class="tile-label">나스닥 지수</div>
+        <div class="tile-main big"><span class="num" id="ndxVal">—</span></div>
+        <div class="tile-sub"><span class="delta" id="ndxChg">—</span><span class="tile-hint">전일비</span></div>
       </div>
-      <div class="board-item">
-        <div class="label">TQQQ</div>
-        <div class="value">$<span id="tqqqVal">—</span></div>
-      </div>
-      <div class="board-item">
-        <div class="label">USD/KRW</div>
-        <div class="value"><span id="fxVal">—</span><span class="sub">원</span></div>
+      <div class="tile">
+        <div class="tile-label">TQQQ</div>
+        <div class="tile-main big"><span class="num">$<span id="tqqqVal">—</span></span></div>
+        <div class="tile-sub"><span class="delta" id="tqqqChg">—</span><span class="tile-hint">전일비</span></div>
       </div>
     </div>
-    <div class="board-meta" id="boardMeta">—</div>
+    <div class="board-meta"><span>USD/KRW <b id="fxVal">—</b>원</span><span id="boardMeta">—</span></div>
   </div>
 
   <!-- 탭 -->
@@ -84,39 +92,23 @@
     </div>
   </div>
 
-  <!-- 회차 선택 -->
-  <div class="acct-row">
-    <div class="select" id="acctSelect" data-act="toggle-select">
-      <span id="acctLabel">회차 없음</span>
-      <div class="select-dropdown" id="acctDropdown"></div>
-    </div>
-    <button class="btn-add" data-act="open-add-round">
-      <svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
-      추가
-    </button>
-  </div>
-
-  <div class="empty-hint hidden" id="emptyHint">
-    아직 회차가 없어요. 오른쪽 <b>+ 추가</b>를 눌러 첫 회차를 만들어 주세요.
-  </div>
+  <div class="empty-hint hidden" id="emptyHint"></div>
 
   <!-- ──────── 대시보드 탭 ──────── -->
   <div id="tabDashboard">
 
     <div class="card">
-      <div class="card-title">📊 포지션 요약</div>
-      <div class="summary-stats">
-        <div class="stat"><div class="k">총 투자금</div><div class="v" id="sumInvest">—</div></div>
-        <div class="stat"><div class="k">평가금액</div><div class="v" id="sumEval">—</div></div>
-        <div class="stat"><div class="k">투자시드</div><div class="v" id="sumSeed">—</div></div>
-        <div class="stat"><div class="k">평가차익</div><div class="v" id="sumGain">—</div></div>
-        <div class="stat"><div class="k">수익률</div><div class="v" id="sumProfitPct">—</div></div>
-        <div class="stat"><div class="k">평균매수가</div><div class="v" id="sumAvg">—</div></div>
+      <div class="card-title"><span class="ct-ic ic-blue"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/></svg></span><span class="ct-t">포지션 요약</span><span class="round-pill" id="roundPill">—</span></div>
+      <div class="pos-list">
+        <div class="pos-row"><span class="k">총 투자금</span><span class="v" id="sumInvest">투자 전</span></div>
+        <div class="pos-row"><span class="k">평균매수</span><span class="v"><span id="sumAvg">—</span><span class="sep">|</span><span id="sumQty">—</span></span></div>
+        <div class="pos-row"><span class="k">투자시드</span><span class="v" id="sumSeed">—</span></div>
+        <div class="pos-row"><span class="k">평가금액</span><span class="v"><span id="sumEval">—</span><span class="delta hidden" id="sumGain"></span></span></div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">🎯 진행단계</div>
+      <div class="card-title"><span class="ct-ic ic-orange"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2.5 4L17 12H5"/></svg></span><span class="ct-t">진행단계</span></div>
       <div class="stage-label">매수</div>
       <div class="stages-row" id="buyStages"></div>
       <div class="stage-label" style="margin-top:10px">매도</div>
@@ -125,9 +117,7 @@
     </div>
 
     <div class="card">
-      <div class="card-title">📈 자금 흐름
-        <span class="card-title-sub">투자시드 vs 평가금</span>
-      </div>
+      <div class="card-title"><span class="ct-ic ic-green"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></span><span class="ct-t">자금 흐름</span><span class="card-title-sub">투자시드 vs 평가금</span></div>
       <div class="chart-wrap"><canvas id="dashChart"></canvas></div>
     </div>
 
@@ -140,7 +130,7 @@
     <div class="trade-section">
       <div class="trade-header open" data-act="toggle-section" data-body="buyBody">
         <div class="trade-header-l">
-          <h3>🛒 Buy</h3>
+          <span class="ct-ic ic-blue"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg></span><h3>Buy</h3>
           <span class="count" id="buyCount">0/5</span>
         </div>
         <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
@@ -159,7 +149,7 @@
     <div class="trade-section">
       <div class="trade-header open" data-act="toggle-section" data-body="sellBody">
         <div class="trade-header-l">
-          <h3>💰 Sell</h3>
+          <span class="ct-ic ic-green"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></span><h3>Sell</h3>
           <span class="count sell-c" id="sellCount">0/3</span>
         </div>
         <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
@@ -176,13 +166,13 @@
 
   </div>
 
-  <p class="footer-note">
-    <span class="local-only">기록은 이 브라우저(localStorage)에만 저장되고 서버로 보내지 않아요. 브라우저 데이터를 지우면 사라지니
-    옵션의 <b>백업 내보내기</b>를 가끔 해두세요.<br></span>
-    <span class="sheet-only">기록은 연결한 구글 시트에 저장돼요. 옵션에서 주소를 비우면 이 브라우저에 저장하는 방식으로 돌아가요.<br></span>
-    참고용 기록 도구이며 투자 권유가 아닙니다. 투자 판단과 책임은 본인에게 있습니다.<br>
-    <a href="https://mzmzkgu.github.io/jupjup/">← 소소한 재테크 작업실로</a>
-  </p>
+  <ul class="footer-note">
+    <li>참고용 기록 도구이며 투자 권유가 아닙니다. 투자 판단과 책임은 본인에게 있습니다.</li>
+    <li class="local-only">투자 기록은 이 브라우저(localStorage)에만 저장되고 서버로 보내지 않습니다.</li>
+    <li class="local-only">브라우저 데이터를 지우면 사라지니 옵션의 백업 내보내기를 가끔 해두세요.</li>
+    <li class="sheet-only">투자 기록은 연결한 구글 시트에 저장됩니다. 옵션에서 주소를 비우면 이 브라우저에 저장합니다.</li>
+  </ul>
+  <a class="back-link" href="https://mzmzkgu.github.io/">← 소소한 재테크 작업실</a>
 
 </div>
 
@@ -238,7 +228,7 @@
 <!-- ═══════════ 모달: 옵션 ═══════════ -->
 <div class="modal-bg" id="optBg" data-act="bg-close" data-close="optBg">
   <div class="modal">
-    <h3>⚙️ 옵션</h3>
+    <h3 class="modal-title"><span class="ct-ic ic-blue"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1A1.7 1.7 0 004.6 9a1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></span>옵션</h3>
 
     <div class="opt-row">
       <div class="opt-info"><div class="t">다크 모드</div><div class="s">테마 전환</div></div>
@@ -253,17 +243,19 @@
       </div>
     </div>
 
-    <div class="field opt-first">
-      <label for="optSeed">총 시드 (USD) — 현재 회차</label>
-      <input type="number" inputmode="decimal" id="optSeed" min="0" placeholder="10000">
+    <div class="opt-group first">
+      <div class="opt-group-title">회차선택</div>
+      <select id="optRound" class="plain-input"></select>
+      <div class="btn-row">
+        <button class="btn-ghost" data-act="open-add-round">추가</button>
+        <button class="btn-danger local-only" data-act="delete-round">삭제</button>
+        <button class="btn-ghost local-only" data-act="rename-round">변경</button>
+      </div>
     </div>
 
-    <div class="opt-group local-only">
-      <div class="opt-group-title">현재 회차</div>
-      <div class="btn-row">
-        <button class="btn-ghost" data-act="rename-round">이름 변경</button>
-        <button class="btn-danger" data-act="delete-round">회차 삭제</button>
-      </div>
+    <div class="field">
+      <label for="optSeed">총 시드 (USD) — 현재 회차</label>
+      <input type="number" inputmode="decimal" id="optSeed" min="0" placeholder="10000">
     </div>
 
     <div class="opt-group local-only">

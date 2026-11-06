@@ -31,11 +31,12 @@
 | 값 | 출처 |
 |---|---|
 | F&G 지수·등급 | `mzmzkgu.github.io/marketTraffic/signals.json` → `assets.nasdaq.fg_score`, `fg_rating` (마켓시그널과 같은 데이터, 약 1시간마다 갱신) |
-| VIX | 같은 파일의 `assets.vix.vix` |
+| 나스닥 지수·전일비 | 같은 파일의 `assets.nasdaq.price`, `change_pct` (`change_pct`는 `marketTraffic/backend/market_signal_updater.py`의 `build_fng_asset`이 전일 종가 대비로 계산) |
+| VIX·구간 | 같은 파일의 `assets.vix.vix`, `vix_state` (20 미만 안정 / 20~30 불안 / 30 이상 공포) |
 | 달러-원 환율 | 같은 파일의 `assets.usdkrw.price` |
-| TQQQ 가격 | 무한매수가 쓰는 Cloudflare Worker의 `/price?ticker=TQQQ` |
+| TQQQ 가격·전일비 | 무한매수가 쓰는 Cloudflare Worker의 `/price?ticker=TQQQ` (`price`, `change_pct`) |
 
-- `signals.json` 구조(`assets.nasdaq`, `assets.vix`, `assets.usdkrw`)가 바뀌면 `fetchMarket()`도 같이 고칩니다.
+- `signals.json` 구조(`assets.nasdaq`, `assets.vix`, `assets.usdkrw`)나 `change_pct` 필드가 바뀌면 `fetchMarket()`도 같이 고칩니다.
 - 한쪽이 실패하면 그 값만 마지막으로 받은 값을 보여주고, 매매 입력 때 F&G·VIX·가격은 직접 적을 수 있습니다.
 - F&G·VIX는 일 단위 지표라 `signals.json`의 갱신 주기로 충분합니다. TQQQ 가격만 Worker에서 그때그때 받아 옵니다.
 

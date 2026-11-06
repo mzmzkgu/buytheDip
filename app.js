@@ -49,7 +49,7 @@ const sheet = { rounds: [], currentId: null, state: 'idle', error: '' };   // �
 const isSheet = () => !!store.opts.scriptUrl;
 const ds = () => (isSheet() ? sheet : store);          // 지금 쓰는 저장소의 { rounds, currentId }
 let busy = false;
-let market = { fg: null, fg_rating: null, vix: null, tqqq: null, fx: null, ts: null };
+let market = { fg: null, fg_rating: null, vix: null, vix_state: null, tqqq: null, tqqqChg: null, ndx: null, ndxChg: null, fx: null, ts: null };
 let marketStale = false;
 const ui = { tab: 'dashboard', editingStage: null, chart: null };
 
@@ -210,12 +210,16 @@ async function fetchMarket(force = false) {
     next.fg = round2(num(a.nasdaq && a.nasdaq.fg_score)) ?? next.fg;
     next.fg_rating = (a.nasdaq && a.nasdaq.fg_rating) || next.fg_rating;
     next.vix = num(a.vix && a.vix.vix) ?? next.vix;
+    next.vix_state = (a.vix && a.vix.vix_state) || next.vix_state;
+    next.ndx = num(a.nasdaq && a.nasdaq.price) ?? next.ndx;
+    next.ndxChg = num(a.nasdaq && a.nasdaq.change_pct) ?? next.ndxChg;
     next.fx = num(a.usdkrw && a.usdkrw.price) ?? next.fx;
     if (sig.value.updated_at) times.push(sig.value.updated_at);
   } else failed.push('F&G·VIX·환율');
 
   if (px.status === 'fulfilled' && num(px.value && px.value.price) > 0) {
     next.tqqq = num(px.value.price);
+    next.tqqqChg = num(px.value.change_pct) ?? next.tqqqChg;
     if (px.value.timestamp) times.push(px.value.timestamp);
   } else failed.push('TQQQ 가격');
 
@@ -238,19 +242,59 @@ async function handleRefresh() {
   if (ok) toast('갱신 완료', 'ok');
 }
 
-// ────────── 렌더: 전광판 ──────────
+// ────────── 아이콘 (이모지 대신 쓰는 선 아이콘) ──────────
+const svg = (body) => `<svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">${body}</svg>`;
+const ICONS = {
+  bell:  svg('<path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 003.4 0"/>'),
+  clock: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+  flag:  svg('<path d="M5 21V4M5 4h12l-2.5 4L17 12H5"/>'),
+  check: svg('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>'),
+};
+
+// ────────── 렌더: 시장 현황 ──────────
+const GAUGE_ZONES = [[0, 25, '#f04438'], [25, 45, '#f59e0b'], [45, 55, '#adb5bd'], [55, 75, '#7bc47f'], [75, 100, '#17c964']];
+function gaugeSvg(score) {
+  const pt = (v, r) => { const a = Math.PI * (1 - v / 100); return [60 + r * Math.cos(a), 62 - r * Math.sin(a)]; };
+  const arcs = GAUGE_ZONES.map(([from, to, color]) => {
+    const [x1, y1] = pt(from, 46), [x2, y2] = pt(to, 46);
+    return `<path d="M${x1.toFixed(2)} ${y1.toFixed(2)} A46 46 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)}" stroke="${color}" stroke-width="10" fill="none"/>`;
+  }).join('');
+  let needle = '';
+  if (score != null) {
+    const [nx, ny] = pt(Math.max(0, Math.min(100, score)), 38);
+    needle = `<line x1="60" y1="62" x2="${nx.toFixed(2)}" y2="${ny.toFixed(2)}" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><circle cx="60" cy="62" r="4.5" fill="currentColor"/>`;
+  }
+  return `<svg viewBox="0 0 120 68" role="img" aria-label="공포탐욕지수 ${score != null ? score.toFixed(1) : '없음'}">${arcs}${needle}</svg>`;
+}
+function setDelta(el, pct) {
+  el.classList.remove('up', 'down');
+  if (pct == null) { el.textContent = '—'; return; }
+  el.classList.add(pct >= 0 ? 'up' : 'down');
+  el.textContent = (pct >= 0 ? '▲ ' : '▼ ') + Math.abs(pct).toFixed(2) + '%';
+}
 function renderBoard() {
   const m = market;
   $('fgVal').textContent   = m.fg   != null ? Number(m.fg).toFixed(1)  : '—';
   $('vixVal').textContent  = m.vix  != null ? Number(m.vix).toFixed(2) : '—';
   $('tqqqVal').textContent = m.tqqq != null ? Number(m.tqqq).toFixed(2) : '—';
+  $('ndxVal').textContent  = m.ndx  != null ? fmt(m.ndx, 0) : '—';
   $('fxVal').textContent   = m.fx   != null ? fmt(m.fx, 1) : '—';
+  setDelta($('ndxChg'), m.ndxChg);
+  setDelta($('tqqqChg'), m.tqqqChg);
 
-  const r = RATINGS[(m.fg_rating || '').toLowerCase()] || { kr: '—', em: '', cls: 'neutral' };
-  $('fgEmoji').textContent = r.em;
+  const r = RATINGS[(m.fg_rating || '').toLowerCase()] || { kr: '—', cls: 'neutral' };
+  $('fgGauge').innerHTML = gaugeSvg(m.fg);
   const rEl = $('fgRating');
   rEl.textContent = r.kr;
   rEl.className = 'fg-rating ' + r.cls;
+
+  const vEl = $('vixState');                       // VIX 구간: 20 미만 안정 / 20~30 불안 / 30 이상 공포
+  vEl.textContent = m.vix_state || '';
+  vEl.className = 'fg-rating ' + ({ '안정': 'greed', '불안': 'fear', '공포': 'extreme-fear' }[m.vix_state] || 'neutral');
+  vEl.style.display = m.vix_state ? '' : 'none';
+  const mk = $('vixMarker');
+  mk.style.display = m.vix == null ? 'none' : '';
+  if (m.vix != null) mk.style.left = Math.max(0, Math.min(100, (m.vix - 10) / 40 * 100)) + '%';   // 10~50 눈금
 
   let meta = '—';
   if (m.ts) {
@@ -260,32 +304,36 @@ function renderBoard() {
   $('boardMeta').textContent = (marketStale && m.ts ? '저장된 값 · ' : '') + meta;
 }
 
-// ────────── 렌더: 회차 선택 ──────────
+// ────────── 렌더: 회차(옵션의 회차선택 + 요약 카드의 회차 이름) ──────────
 function renderAcct() {
   const d = ds(), c = cur();
   document.body.dataset.mode = isSheet() ? 'sheet' : 'local';
   $('modeChip').textContent = isSheet() ? '시트' : '로컬';
-  $('acctLabel').textContent = c ? c.name : (isSheet() && sheet.state === 'loading' ? '불러오는 중…' : '회차 없음');
+  $('roundPill').textContent = c ? c.name : (isSheet() && sheet.state === 'loading' ? '불러오는 중…' : '회차 없음');
+
   let msg = '';
   if (isSheet()) {
     if (sheet.state === 'loading') msg = '구글 시트에서 불러오는 중이에요…';
-    else if (sheet.state === 'error') msg = `시트를 불러오지 못했어요 (${esc(sheet.error)}). 오른쪽 위 ↻ 로 다시 시도해 보세요.`;
-    else if (!d.rounds.length) msg = '시트에서 회차(탭)를 찾지 못했어요. 오른쪽 <b>+ 추가</b>로 새 회차를 만들 수 있어요.';
+    else if (sheet.state === 'error') msg = `시트를 불러오지 못했어요 (${esc(sheet.error)}). 오른쪽 위 새로고침으로 다시 시도해 보세요.`;
+    else if (!d.rounds.length) msg = '시트에서 회차(탭)를 찾지 못했어요. <button data-act="open-add-round">회차 추가</button>';
   } else if (!d.rounds.length) {
-    msg = '아직 회차가 없어요. 오른쪽 <b>+ 추가</b>를 눌러 첫 회차를 만들어 주세요.';
+    msg = '아직 회차가 없어요. <button data-act="open-add-round">첫 회차 만들기</button>';
   }
   $('emptyHint').innerHTML = msg;
   $('emptyHint').classList.toggle('hidden', !msg);
-  const dd = $('acctDropdown');
-  dd.innerHTML = '';
+
+  const sel = $('optRound');                         // 옵션의 회차선택 드롭다운
+  sel.innerHTML = '';
+  if (!d.rounds.length) {
+    const o = document.createElement('option'); o.textContent = '회차 없음'; sel.appendChild(o);
+  }
   d.rounds.forEach(r => {
-    const el = document.createElement('div');
-    el.className = 'select-option' + (r.id === d.currentId ? ' selected' : '');
-    el.textContent = r.name;
-    el.dataset.act = 'pick-round';
-    el.dataset.id = r.id;
-    dd.appendChild(el);
+    const o = document.createElement('option');
+    o.value = r.id; o.textContent = r.name;
+    sel.appendChild(o);
   });
+  sel.disabled = !d.rounds.length;
+  if (c) sel.value = c.id;
 }
 
 // ────────── 렌더: 대시보드 ──────────
@@ -295,29 +343,29 @@ function renderDashboard() {
   const useKrw = store.opts.currency === 'KRW';
   const fx = market.fx || FX_FALLBACK;
   const money = (usd) => usd == null ? '—' : (useKrw ? fmtKrw(usd * fx) : fmtUsd(usd));
-  const signed = (usd) => usd == null ? '—' : (usd >= 0 ? '+' : '') + money(usd);
   const hasBuy = c.buyQty > 0;
 
-  $('sumInvest').textContent = hasBuy ? money(c.buyAmt) : '—';
-  $('sumEval').textContent   = hasBuy ? money(c.evalUsd) : '—';
-  $('sumAvg').textContent    = hasBuy ? fmtUsd(c.buyAvg) : '—';
+  const inv = $('sumInvest');                        // 투자 전에는 금액 대신 '투자 전'
+  inv.textContent = hasBuy ? money(c.buyAmt) : '투자 전';
+  inv.classList.toggle('muted', !hasBuy);
+  $('sumAvg').textContent = hasBuy ? fmtUsd(c.buyAvg) : '—';
+  $('sumQty').textContent = hasBuy ? fmt(c.isAllSold ? c.buyQty : c.held, 0) + '주' : '—';
   // 투자시드: 진행 중이면 회차에 정한 시드, 사이클이 끝났으면 실제 투자금
-  $('sumSeed').textContent   = c.isAllSold ? money(c.buyAmt) : (round ? money(round.seedUsd) : '—');
+  $('sumSeed').textContent = c.isAllSold ? money(c.buyAmt) : (round ? money(round.seedUsd) : '—');
+  $('sumEval').textContent = hasBuy ? money(c.evalUsd) : '—';
 
-  const gainEl = $('sumGain'), pctEl = $('sumProfitPct');
+  const g = $('sumGain');                            // 평가금액 옆 [+$272.05 (+12.1%)]
   if (hasBuy && c.gainUsd != null) {
-    gainEl.textContent = signed(c.gainUsd);
-    gainEl.className = 'v ' + (c.gainUsd >= 0 ? 'positive' : 'negative');
-    pctEl.textContent = (c.profitPct >= 0 ? '+' : '') + c.profitPct.toFixed(2) + '%';
-    pctEl.className = 'v ' + (c.profitPct >= 0 ? 'positive' : 'negative');
+    const up = c.gainUsd >= 0;
+    g.textContent = (up ? '+' : '-') + money(Math.abs(c.gainUsd)) + ' (' + (up ? '+' : '-') + Math.abs(c.profitPct).toFixed(1) + '%)';
+    g.className = 'delta ' + (up ? 'up' : 'down');
   } else {
-    gainEl.textContent = pctEl.textContent = '—';
-    gainEl.className = pctEl.className = 'v';
+    g.className = 'delta hidden';
   }
 
   renderStagePills('buyStages', BUY_DEF, c, false);
   renderStagePills('sellStages', SELL_DEF, c, true);
-  $('statusLine').textContent = round ? buildStatusMessage(c) : '회차를 추가하면 현재 상태를 알려드려요';
+  renderStatus(round ? statusInfo(c) : { kind: 'info', icon: 'clock', text: '회차를 추가하면 현재 상태를 알려드려요' });
   renderChart(c);
 }
 
@@ -327,7 +375,8 @@ function renderStagePills(containerId, defs, c, isSell) {
   const used = isSell ? c.sells : c.buys;
   defs.forEach((d, i) => {
     const done = !!used[i];
-    const can = !done && (isSell ? sellCond(d, market, c) : buyCond(d, market));
+    // 입력이 끝난 칸도 조건을 계속 확인한다: 입력됨 = 색 채움, 조건 충족 = 깜빡이는 테두리 (둘 다면 같이)
+    const can = isSell ? sellCond(d, market, c) : buyCond(d, market);
     const pill = document.createElement('div');
     pill.className = 'stage-pill' + (done ? (isSell ? ' done-sell' : ' done') : '') + (can ? ' can' : '');
     pill.textContent = d.label;
@@ -335,20 +384,25 @@ function renderStagePills(containerId, defs, c, isSell) {
   });
 }
 
-function buildStatusMessage(c) {
+function statusInfo(c) {
   for (let i = 0; i < BUY_DEF.length; i++) {
     if (c.buys[i]) continue;
     const d = BUY_DEF[i];
-    if (buyCond(d, market)) return `🚨 ${d.label} 매수 조건 충족! (시드의 ${(d.ratio * 100).toFixed(0)}% 매수 타이밍)`;
+    if (buyCond(d, market)) return { kind: 'alert', icon: 'bell', text: `${d.label} 매수 조건 충족 · 시드의 ${(d.ratio * 100).toFixed(0)}% 매수 타이밍` };
   }
   for (let i = 0; i < SELL_DEF.length; i++) {
     if (c.sells[i]) continue;
     const d = SELL_DEF[i];
-    if (sellCond(d, market, c)) return `💰 ${d.label} 매도 조건 충족! (평가액의 ${(d.ratio * 100).toFixed(0)}% 매도 타이밍)`;
+    if (sellCond(d, market, c)) return { kind: 'sell', icon: 'bell', text: `${d.label} 매도 조건 충족 · 평가액의 ${(d.ratio * 100).toFixed(0)}% 매도 타이밍` };
   }
-  if (c.buyDone === 0) return '⏸ 아직 매수 시작 전 (F&G 조건 대기)';
-  if (c.sellDone === SELL_DEF.length) return '✅ 모든 매도 단계 완료';
-  return `📍 현재 단계: ${c.buyDone === BUY_DEF.length ? 'B5' : 'B' + c.buyDone} 매수 완료${c.sellDone > 0 ? ` / S${c.sellDone} 매도 진행` : ''}`;
+  if (c.buyDone === 0) return { kind: 'info', icon: 'clock', text: '아직 매수 시작 전 · F&G 조건 대기' };
+  if (c.sellDone === SELL_DEF.length) return { kind: 'info', icon: 'check', text: '모든 매도 단계 완료' };
+  return { kind: 'info', icon: 'flag', text: `현재 단계: ${c.buyDone === BUY_DEF.length ? 'B5' : 'B' + c.buyDone} 매수 완료${c.sellDone > 0 ? ` / S${c.sellDone} 매도 진행` : ''}` };
+}
+function renderStatus(st) {                           // 말풍선 모양 상태 안내
+  const el = $('statusLine');
+  el.className = 'status-line' + (st.kind === 'alert' ? ' alert' : st.kind === 'sell' ? ' sell' : '');
+  el.innerHTML = ICONS[st.icon] + '<span>' + esc(st.text) + '</span>';
 }
 
 // ────────── 렌더: 차트 ──────────
@@ -528,7 +582,7 @@ async function submitTrade() {
   }
   closeModal('tradeModalBg');
   renderAll();
-  toast('저장 완료 ✅', 'ok');
+  toast('저장 완료', 'ok');
 }
 
 async function deleteTrade() {
@@ -552,6 +606,7 @@ async function deleteTrade() {
 
 // ────────── 회차 관리 ──────────
 function openAddRound() {
+  closeModal('optBg');                           // 옵션에서 눌러도 추가 창이 위에 보이도록
   $('newRoundName').value = '';
   const c = cur();
   $('newRoundSeed').value = c ? c.seedUsd : DEFAULT_SEED;
@@ -579,7 +634,7 @@ async function submitAddRound() {
     if (!ok) return;
     closeModal('addRoundBg');
     await loadSheet(name);
-    toast('회차 추가됨 ✅', 'ok');
+    toast('회차 추가됨', 'ok');
     return;
   }
   const r = { id: uid(), name, seedUsd: seed, trades: {} };
@@ -588,7 +643,7 @@ async function submitAddRound() {
   save();
   closeModal('addRoundBg');
   renderAll();
-  toast('회차 추가됨 ✅', 'ok');
+  toast('회차 추가됨', 'ok');
 }
 function renameRound() {
   const c = cur();
@@ -780,7 +835,7 @@ function copySheetToLocal() {                    // 시트 모드에서 읽어 �
     store.rounds.push({ id: uid(), name, seedUsd: r.seedUsd, trades: JSON.parse(JSON.stringify(r.trades)) });
   });
   save();
-  toast(`회차 ${src.length}개를 이 브라우저에 복사했어요 ✅`, 'ok');
+  toast(`회차 ${src.length}개를 이 브라우저에 복사했어요`, 'ok');
 }
 
 // ────────── 이벤트 ──────────
@@ -789,8 +844,6 @@ const ACTIONS = {
   'open-options':    () => openOptions(),
   'save-options':    () => saveOptions(),
   'tab':             (el) => switchTab(el.dataset.tab),
-  'toggle-select':   () => $('acctSelect').classList.toggle('open'),
-  'pick-round':      (el) => { ds().currentId = el.dataset.id; if (isSheet()) store.sheetTab = el.dataset.id; save(); $('acctSelect').classList.remove('open'); renderAll(); },
   'open-add-round':  () => openAddRound(),
   'submit-add-round': () => submitAddRound(),
   'toggle-section':  (el) => { el.classList.toggle('open'); $(el.dataset.body).classList.toggle('open'); },
@@ -812,22 +865,27 @@ document.addEventListener('click', (e) => {
     if (el.dataset.act === 'bg-close') { if (e.target === el) closeModal(el.dataset.close); }
     else if (ACTIONS[el.dataset.act]) ACTIONS[el.dataset.act](el);
   }
-  if (!e.target.closest('#acctSelect')) $('acctSelect').classList.remove('open');
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     document.querySelectorAll('.modal-bg.open').forEach(m => closeModal(m.id));
-    $('acctSelect').classList.remove('open');
-  } else if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.tab, .select, .trade-header')) {
+  } else if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.tab, .trade-header')) {
     e.preventDefault();
     e.target.click();
   }
 });
 $('optDark').addEventListener('change', (e) => setTheme(e.target.checked));
+$('optRound').addEventListener('change', (e) => {            // 옵션의 회차선택: 고르면 바로 그 회차로 바뀜
+  if (!e.target.value) return;
+  ds().currentId = e.target.value;
+  if (isSheet()) store.sheetTab = e.target.value;
+  save();
+  renderAll();
+});
 $('importFile').addEventListener('change', (e) => importJson(e.target.files[0]));
 
 // ────────── 시작 ──────────
-document.querySelectorAll('.tab, .select, .trade-header').forEach(el => { el.tabIndex = 0; el.setAttribute('role', 'button'); });
+document.querySelectorAll('.tab, .trade-header').forEach(el => { el.tabIndex = 0; el.setAttribute('role', 'button'); });
 load();
 document.documentElement.setAttribute('data-theme', store.opts.theme === 'dark' ? 'dark' : '');
 document.querySelectorAll('#segCurrency button').forEach(b => b.classList.toggle('active', b.dataset.v === store.opts.currency));
