@@ -439,3 +439,14 @@ body { min-height: 100vh; }
 }
 .footer-note a { color: var(--text-sub); font-weight: 600; }
 button:focus-visible, .tab:focus-visible, .select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ─── 저장 위치(로컬/시트) 모드 ─── */
+.mode-chip {
+  margin-left: 6px; padding: 1px 7px; border-radius: 999px; vertical-align: 2px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0;
+  background: var(--primary-bg); color: var(--primary);
+}
+[data-mode="local"] .sheet-only, [data-mode="sheet"] .local-only { display: none !important; }
+body.busy .modal-actions button, body.busy .btn-row button { opacity: .5; pointer-events: none; }
+.field select.plain-input { margin-bottom: 0; }
+.opt-group .btn-row.sheet-only { margin-top: 10px; }

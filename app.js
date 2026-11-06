@@ -1,6 +1,7 @@
 /* ════════════════════════════════════════════════════════════
    줍줍매매 (buytheDip) — TQQQ F&G 매매가이드
-   - 기록은 localStorage('buythedip_v1')에만 저장한다. (서버·구글시트 연동 없음)
+   - 저장소는 둘 중 하나만 쓴다. 옵션의 Apps Script 웹앱 주소가 비어 있으면 localStorage('buythedip_v1'),
+     채워져 있으면 그 구글 시트(listtabs/read/write/deleterow/copytab/settotalseed)에 읽고 쓴다.
    - 시세는 마켓시그널의 signals.json(F&G·VIX·환율)과 무한매수가 쓰는 Cloudflare Worker(TQQQ 가격)에서 읽어 온다.
    ──────────────────────────────────────────────────────────── */
 (() => {
@@ -38,11 +39,16 @@ const RATINGS = {
 
 // ────────── 전역 상태 ──────────
 const store = {                 // localStorage 에 저장되는 부분
-  opts: { theme: 'light', currency: 'USD' },
+  opts: { theme: 'light', currency: 'USD', scriptUrl: '' },   // scriptUrl 이 있으면 구글 시트 모드
   rounds: [],                   // { id, name, seedUsd, trades: { B1: {date, price, qty, fx, fg, vix}, ... } }
   currentId: null,
   market: null,                 // 마지막으로 받은 시세 (오프라인·API 오류 때 대신 보여줌)
+  sheetTab: null,               // 시트 모드에서 마지막으로 본 회차(탭) 이름
 };
+const sheet = { rounds: [], currentId: null, state: 'idle', error: '' };   // 시트 모드의 작업 사본 (저장하지 않고 매번 시트에서 읽음)
+const isSheet = () => !!store.opts.scriptUrl;
+const ds = () => (isSheet() ? sheet : store);          // 지금 쓰는 저장소의 { rounds, currentId }
+let busy = false;
 let market = { fg: null, fg_rating: null, vix: null, tqqq: null, fx: null, ts: null };
 let marketStale = false;
 const ui = { tab: 'dashboard', editingStage: null, chart: null };
@@ -114,7 +120,9 @@ function load() {
     if (d.opts) {
       store.opts.theme = d.opts.theme === 'dark' ? 'dark' : 'light';
       store.opts.currency = d.opts.currency === 'KRW' ? 'KRW' : 'USD';
+      store.opts.scriptUrl = validScriptUrl(d.opts.scriptUrl) ? d.opts.scriptUrl : '';
     }
+    if (typeof d.sheetTab === 'string') store.sheetTab = d.sheetTab;
     store.rounds = cleanRounds(d.rounds);
     store.currentId = store.rounds.some(r => r.id === d.currentId) ? d.currentId : (store.rounds.length ? store.rounds[store.rounds.length - 1].id : null);
     if (d.market && typeof d.market === 'object') {
@@ -132,7 +140,12 @@ function save() {
   }
 }
 
-const cur = () => store.rounds.find(r => r.id === store.currentId) || null;
+const cur = () => ds().rounds.find(r => r.id === ds().currentId) || null;
+
+function validScriptUrl(u) {
+  try { const x = new URL(u); return x.protocol === 'https:' && (x.hostname === 'script.google.com' || x.hostname === 'script.googleusercontent.com'); }
+  catch (e) { return false; }
+}
 
 // ────────── 계산 (예전엔 구글시트가 하던 일) ──────────
 const buyCond = (d, m) => d.op === 'AND'
@@ -219,6 +232,7 @@ async function handleRefresh() {
   const btn = $('refreshBtn');
   btn.classList.add('refreshing');
   const ok = await fetchMarket(true);
+  if (isSheet()) await loadSheet(sheet.currentId);
   renderAll();
   setTimeout(() => btn.classList.remove('refreshing'), 600);
   if (ok) toast('갱신 완료', 'ok');
@@ -248,14 +262,25 @@ function renderBoard() {
 
 // ────────── 렌더: 회차 선택 ──────────
 function renderAcct() {
-  const c = cur();
-  $('acctLabel').textContent = c ? c.name : '회차 없음';
-  $('emptyHint').classList.toggle('hidden', store.rounds.length > 0);
+  const d = ds(), c = cur();
+  document.body.dataset.mode = isSheet() ? 'sheet' : 'local';
+  $('modeChip').textContent = isSheet() ? '시트' : '로컬';
+  $('acctLabel').textContent = c ? c.name : (isSheet() && sheet.state === 'loading' ? '불러오는 중…' : '회차 없음');
+  let msg = '';
+  if (isSheet()) {
+    if (sheet.state === 'loading') msg = '구글 시트에서 불러오는 중이에요…';
+    else if (sheet.state === 'error') msg = `시트를 불러오지 못했어요 (${esc(sheet.error)}). 오른쪽 위 ↻ 로 다시 시도해 보세요.`;
+    else if (!d.rounds.length) msg = '시트에서 회차(탭)를 찾지 못했어요. 오른쪽 <b>+ 추가</b>로 새 회차를 만들 수 있어요.';
+  } else if (!d.rounds.length) {
+    msg = '아직 회차가 없어요. 오른쪽 <b>+ 추가</b>를 눌러 첫 회차를 만들어 주세요.';
+  }
+  $('emptyHint').innerHTML = msg;
+  $('emptyHint').classList.toggle('hidden', !msg);
   const dd = $('acctDropdown');
   dd.innerHTML = '';
-  store.rounds.forEach(r => {
+  d.rounds.forEach(r => {
     const el = document.createElement('div');
-    el.className = 'select-option' + (r.id === store.currentId ? ' selected' : '');
+    el.className = 'select-option' + (r.id === d.currentId ? ' selected' : '');
     el.textContent = r.name;
     el.dataset.act = 'pick-round';
     el.dataset.id = r.id;
@@ -479,7 +504,7 @@ function openTradeModal(stage) {
   openModal('tradeModalBg');
 }
 
-function submitTrade() {
+async function submitTrade() {
   const round = cur(), stage = ui.editingStage;
   if (!round || !stage) return;
   const t = { date: $('tDate').value, price: num($('tPrice').value), qty: num($('tQty').value),
@@ -491,19 +516,35 @@ function submitTrade() {
     const heldBefore = calc(round).held + (prev ? prev.qty : 0);
     if (t.qty > heldBefore && !confirm(`보유 수량(${fmt(heldBefore, 0)}주)보다 많이 팔았다고 기록돼요. 그래도 저장할까요?`)) return;
   }
-  round.trades[stage] = t;
-  save();
+  if (isSheet()) {
+    const ok = await sheetTask('시트에 저장하는 중…', async () => {
+      await sheetCall('write', { tab: round.id }, { stage, date: t.date, trade_price: t.price, qty: t.qty, fx: t.fx, fg: t.fg, vix: t.vix });
+      await refreshSheetRound(round.id);
+    });
+    if (!ok) return;
+  } else {
+    round.trades[stage] = t;
+    save();
+  }
   closeModal('tradeModalBg');
   renderAll();
   toast('저장 완료 ✅', 'ok');
 }
 
-function deleteTrade() {
+async function deleteTrade() {
   const round = cur(), stage = ui.editingStage;
   if (!round || !stage || !round.trades[stage]) return;
   if (!confirm(`${stage} 기록을 삭제할까요?`)) return;
-  delete round.trades[stage];
-  save();
+  if (isSheet()) {
+    const ok = await sheetTask('시트에서 삭제하는 중…', async () => {
+      await sheetCall('deleterow', { tab: round.id }, { stage });
+      await refreshSheetRound(round.id);
+    });
+    if (!ok) return;
+  } else {
+    delete round.trades[stage];
+    save();
+  }
   closeModal('tradeModalBg');
   renderAll();
   toast('삭제 완료', 'ok');
@@ -514,14 +555,34 @@ function openAddRound() {
   $('newRoundName').value = '';
   const c = cur();
   $('newRoundSeed').value = c ? c.seedUsd : DEFAULT_SEED;
+  if (isSheet()) {                               // 시트 모드: 복제할 탭을 고른다
+    const sel = $('newRoundSrc');
+    sel.innerHTML = '';
+    sheet.rounds.forEach(r => { const o = document.createElement('option'); o.value = r.id; o.textContent = r.name; sel.appendChild(o); });
+    if (c) sel.value = c.id;
+  }
   openModal('addRoundBg');
 }
-function submitAddRound() {
-  const name = $('newRoundName').value.trim();
+async function submitAddRound() {
+  const name = $('newRoundName').value.trim().slice(0, 40);
   const seed = num($('newRoundSeed').value);
   if (!name) { toast('회차 이름을 적어 주세요', 'err'); return; }
   if (!(seed > 0)) { toast('시드는 0보다 커야 해요', 'err'); return; }
-  const r = { id: uid(), name: name.slice(0, 40), seedUsd: seed, trades: {} };
+  if (isSheet()) {
+    const src = $('newRoundSrc').value;
+    if (!src) { toast('복제할 탭이 없어요. 시트에 기준이 될 탭을 먼저 만들어 주세요', 'err'); return; }
+    if (sheet.rounds.some(r => r.id === name)) { toast('같은 이름의 탭이 이미 있어요', 'err'); return; }
+    const ok = await sheetTask('시트에 새 탭을 만드는 중…', async () => {
+      await sheetCall('copytab', {}, { source: src, target: name });
+      try { await sheetCall('settotalseed', { tab: name }, { value: seed }); } catch (e) { /* 시드 저장 실패는 무시 */ }
+    });
+    if (!ok) return;
+    closeModal('addRoundBg');
+    await loadSheet(name);
+    toast('회차 추가됨 ✅', 'ok');
+    return;
+  }
+  const r = { id: uid(), name, seedUsd: seed, trades: {} };
   store.rounds.push(r);
   store.currentId = r.id;
   save();
@@ -531,7 +592,7 @@ function submitAddRound() {
 }
 function renameRound() {
   const c = cur();
-  if (!c) return;
+  if (!c || isSheet()) return;
   const name = (prompt('회차 이름', c.name) || '').trim();
   if (!name) return;
   c.name = name.slice(0, 40);
@@ -540,7 +601,7 @@ function renameRound() {
 }
 function deleteRound() {
   const c = cur();
-  if (!c) return;
+  if (!c || isSheet()) return;
   if (!confirm(`'${c.name}' 회차와 모든 매매기록을 삭제할까요?\n(되돌릴 수 없어요 — 먼저 백업 내보내기를 권해요)`)) return;
   store.rounds = store.rounds.filter(r => r.id !== c.id);
   store.currentId = store.rounds.length ? store.rounds[store.rounds.length - 1].id : null;
@@ -556,14 +617,37 @@ function openOptions() {
   $('optDark').checked = store.opts.theme === 'dark';
   $('optSeed').value = c ? c.seedUsd : '';
   $('optSeed').disabled = !c;
+  $('optScriptUrl').value = store.opts.scriptUrl || '';
   document.querySelectorAll('#segCurrency button').forEach(b => b.classList.toggle('active', b.dataset.v === store.opts.currency));
   openModal('optBg');
 }
-function saveOptions() {
+async function saveOptions() {
+  const url = $('optScriptUrl').value.trim();
+  if (url && !validScriptUrl(url)) { toast('Apps Script 웹앱 주소(https://script.google.com/...)를 넣어 주세요', 'err'); return; }
+
+  if (url !== store.opts.scriptUrl) {            // 저장 위치 바꾸기: 로컬 ↔ 시트 (한쪽만 쓴다)
+    store.opts.scriptUrl = url;
+    sheet.rounds = []; sheet.currentId = null; sheet.state = 'idle'; sheet.error = '';
+    save();
+    closeModal('optBg');
+    toast(url ? '구글 시트에 저장하는 방식으로 바꿨어요' : '이 브라우저(로컬)에 저장하는 방식으로 바꿨어요', 'ok');
+    if (url) await loadSheet(store.sheetTab); else renderAll();
+    return;
+  }
   const c = cur();
   const seed = num($('optSeed').value);
-  if (c && seed > 0) c.seedUsd = seed;
-  save();
+  if (c && seed > 0 && seed !== c.seedUsd) {
+    if (isSheet()) {
+      const ok = await sheetTask('시트에 시드를 저장하는 중…', async () => {
+        await sheetCall('settotalseed', { tab: c.id }, { value: seed });
+        await refreshSheetRound(c.id);
+      });
+      if (!ok) return;
+    } else {
+      c.seedUsd = seed;
+      save();
+    }
+  }
   closeModal('optBg');
   renderAll();
   toast('저장됨', 'ok');
@@ -583,7 +667,7 @@ function setCurrency(c) {
 
 // ────────── 백업 (JSON) ──────────
 function exportJson() {
-  const data = { app: 'buythedip', v: 1, exportedAt: new Date().toISOString(), opts: store.opts, rounds: store.rounds };
+  const data = { app: 'buythedip', v: 1, exportedAt: new Date().toISOString(), opts: { theme: store.opts.theme, currency: store.opts.currency }, rounds: store.rounds };   // 시트 웹앱 주소는 백업에 넣지 않는다
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -614,60 +698,89 @@ async function importJson(file) {
   }
 }
 
-// ────────── 구글 시트에서 1회 가져오기 (읽기 전용) ──────────
-function normDate(s) {
-  if (typeof s !== 'string' || !s) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
+// ────────── 구글 시트 모드 (Apps Script 웹앱) ──────────
+function normDate(v) {
+  if (typeof v !== 'string' || !v) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const d = new Date(v);
   if (isNaN(d)) return '';
-  const k = new Date(d.getTime() + 9 * 3600 * 1000);       // 한국 날짜로 변환
-  return k.toISOString().slice(0, 10);
+  return new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);   // 한국 날짜로 변환
 }
-async function sheetCall(base, action, params = {}) {
+async function sheetCall(action, params = {}, body = null) {
+  const base = store.opts.scriptUrl;
   const qs = new URLSearchParams({ action, ...params }).toString();
-  const r = await fetch(base + (base.includes('?') ? '&' : '?') + qs, { redirect: 'follow' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const d = await r.json();
-  if (d.error) throw new Error(d.error);
-  return d;
-}
-async function importSheet() {
-  const base = $('optScriptUrl').value.trim();
-  let host = '';
-  try { const u = new URL(base); host = u.protocol === 'https:' ? u.hostname : ''; } catch (e) {}
-  if (host !== 'script.google.com' && host !== 'script.googleusercontent.com') {
-    toast('Apps Script 웹앱 주소(https://script.google.com/...)를 넣어 주세요', 'err');
-    return;
-  }
-  toast('시트를 읽는 중…');
+  const url = base + (base.includes('?') ? '&' : '?') + qs;
+  // body 는 문자열 그대로 보낸다 (Content-Type 을 안 붙여야 CORS 사전 요청 없이 Apps Script 가 받는다)
+  const init = body ? { method: 'POST', body: JSON.stringify(body), redirect: 'follow' } : { method: 'GET', redirect: 'follow' };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 40000);
   try {
-    const { tabs = [] } = await sheetCall(base, 'listtabs');
-    const added = [];
-    for (const name of tabs) {
-      let res;
-      try { res = await sheetCall(base, 'read', { tab: name }); } catch (e) { continue; }   // 회차 탭이 아니면 건너뜀
-      const trades = {};
-      (res.rows || []).slice(0, STAGE_IDS.length).forEach((row, i) => {
-        if (!row || !row.stage_used) return;
-        const t = cleanTrade({ date: normDate(row.date), price: row.trade_price, qty: row.qty, fx: row.fx, fg: row.fg, vix: row.vix });
-        if (t) trades[STAGE_IDS[i]] = t;
-      });
-      if (!Object.keys(trades).length) continue;                                           // 매매기록이 없는 탭은 건너뜀
-      const seed = num(res.summary && res.summary.total_seed_usd);
-      let finalName = String(name).slice(0, 40);
-      if (store.rounds.some(r => r.name === finalName)) finalName = finalName.slice(0, 33) + ' (시트)';
-      added.push({ id: uid(), name: finalName, seedUsd: seed > 0 ? seed : DEFAULT_SEED, trades });
-    }
-    if (!added.length) throw new Error('매매기록이 있는 탭을 찾지 못했어요');
-    store.rounds.push(...added);
-    store.currentId = added[added.length - 1].id;
-    save();
-    closeModal('optBg');
-    renderAll();
-    toast(`회차 ${added.length}개를 가져왔어요 ✅`, 'ok');
+    const r = await fetch(url, { ...init, signal: ctrl.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (d && d.error) throw new Error(d.error);
+    return d;
   } catch (e) {
-    toast('가져오기 실패: ' + e.message, 'err');
+    throw new Error(e.name === 'AbortError' ? '시트 응답이 너무 늦어요' : e.message);
+  } finally {
+    clearTimeout(timer);
   }
+}
+async function readSheetRound(name) {
+  const res = await sheetCall('read', { tab: name });
+  if (!res || !Array.isArray(res.rows)) throw new Error('회차 탭이 아니에요');
+  const trades = {};
+  res.rows.slice(0, STAGE_IDS.length).forEach((row, i) => {
+    if (!row || !row.stage_used) return;
+    const t = cleanTrade({ date: normDate(row.date), price: row.trade_price, qty: row.qty, fx: row.fx, fg: row.fg, vix: row.vix });
+    if (t) trades[STAGE_IDS[i]] = t;
+  });
+  const seed = num(res.summary && res.summary.total_seed_usd);
+  return { id: name, name, seedUsd: seed > 0 ? seed : DEFAULT_SEED, trades };
+}
+async function refreshSheetRound(name) {
+  const r = await readSheetRound(name);
+  const i = sheet.rounds.findIndex(x => x.id === name);
+  if (i >= 0) sheet.rounds[i] = r; else sheet.rounds.push(r);
+}
+async function loadSheet(prefer) {
+  sheet.state = 'loading'; sheet.error = '';
+  renderAll();
+  try {
+    const { tabs } = await sheetCall('listtabs');
+    if (!Array.isArray(tabs)) throw new Error('탭 목록을 받지 못했어요');
+    const results = await Promise.allSettled(tabs.map(readSheetRound));       // 회차가 아닌 탭은 읽기에 실패하므로 자동으로 빠진다
+    sheet.rounds = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    const names = sheet.rounds.map(r => r.id);
+    sheet.currentId = [prefer, store.sheetTab].find(n => names.includes(n)) || names[names.length - 1] || null;
+    if (sheet.currentId && sheet.currentId !== store.sheetTab) { store.sheetTab = sheet.currentId; save(); }   // 다음에 열 때 이 탭으로
+    sheet.state = 'ready';
+  } catch (e) {
+    sheet.rounds = []; sheet.currentId = null;
+    sheet.state = 'error'; sheet.error = e.message;
+  }
+  renderAll();
+}
+async function sheetTask(label, fn) {            // 시트에 쓰는 동안 중복 클릭을 막고 오류를 알려준다
+  if (busy) return false;
+  busy = true;
+  document.body.classList.add('busy');
+  toast(label);
+  try { await fn(); return true; }
+  catch (e) { toast('시트 오류: ' + e.message, 'err'); return false; }
+  finally { busy = false; document.body.classList.remove('busy'); }
+}
+function copySheetToLocal() {                    // 시트 모드에서 읽어 둔 회차를 이 브라우저에도 복사 (시트는 안 바뀜)
+  const src = sheet.rounds.filter(r => Object.keys(r.trades).length);
+  if (!src.length) { toast('복사할 매매 기록이 없어요', 'err'); return; }
+  if (!confirm(`시트의 회차 ${src.length}개를 이 브라우저(로컬)에 복사할까요?\n(시트는 바뀌지 않고, 같은 이름이 있으면 '(시트)'를 붙여요)`)) return;
+  src.forEach(r => {
+    let name = r.name;
+    if (store.rounds.some(x => x.name === name)) name = name.slice(0, 33) + ' (시트)';
+    store.rounds.push({ id: uid(), name, seedUsd: r.seedUsd, trades: JSON.parse(JSON.stringify(r.trades)) });
+  });
+  save();
+  toast(`회차 ${src.length}개를 이 브라우저에 복사했어요 ✅`, 'ok');
 }
 
 // ────────── 이벤트 ──────────
@@ -677,7 +790,7 @@ const ACTIONS = {
   'save-options':    () => saveOptions(),
   'tab':             (el) => switchTab(el.dataset.tab),
   'toggle-select':   () => $('acctSelect').classList.toggle('open'),
-  'pick-round':      (el) => { store.currentId = el.dataset.id; save(); $('acctSelect').classList.remove('open'); renderAll(); },
+  'pick-round':      (el) => { ds().currentId = el.dataset.id; if (isSheet()) store.sheetTab = el.dataset.id; save(); $('acctSelect').classList.remove('open'); renderAll(); },
   'open-add-round':  () => openAddRound(),
   'submit-add-round': () => submitAddRound(),
   'toggle-section':  (el) => { el.classList.toggle('open'); $(el.dataset.body).classList.toggle('open'); },
@@ -690,7 +803,7 @@ const ACTIONS = {
   'delete-round':    () => deleteRound(),
   'export-json':     () => exportJson(),
   'import-json':     () => $('importFile').click(),
-  'import-sheet':    () => importSheet(),
+  'copy-sheet-local': () => copySheetToLocal(),
 };
 
 document.addEventListener('click', (e) => {
@@ -720,5 +833,6 @@ document.documentElement.setAttribute('data-theme', store.opts.theme === 'dark' 
 document.querySelectorAll('#segCurrency button').forEach(b => b.classList.toggle('active', b.dataset.v === store.opts.currency));
 renderAll();
 fetchMarket().then(renderAll);
+if (isSheet()) loadSheet(store.sheetTab);
 
 })();

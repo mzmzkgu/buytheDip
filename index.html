@@ -29,7 +29,7 @@
   <div class="app-header">
     <div class="brand">
       <div class="brand-logo">F&amp;G</div>
-      <div>줍줍매매<span class="brand-sub">TQQQ</span></div>
+      <div>줍줍매매<span class="brand-sub">TQQQ</span><span class="mode-chip" id="modeChip" title="저장 위치">로컬</span></div>
     </div>
     <div class="header-btns">
       <button class="icon-btn" id="refreshBtn" data-act="refresh" title="시세 갱신" aria-label="시세 갱신">
@@ -177,8 +177,9 @@
   </div>
 
   <p class="footer-note">
-    기록은 이 브라우저(localStorage)에만 저장되고 서버로 보내지 않아요. 브라우저 데이터를 지우면 사라지니
-    옵션의 <b>백업 내보내기</b>를 가끔 해두세요.<br>
+    <span class="local-only">기록은 이 브라우저(localStorage)에만 저장되고 서버로 보내지 않아요. 브라우저 데이터를 지우면 사라지니
+    옵션의 <b>백업 내보내기</b>를 가끔 해두세요.<br></span>
+    <span class="sheet-only">기록은 연결한 구글 시트에 저장돼요. 옵션에서 주소를 비우면 이 브라우저에 저장하는 방식으로 돌아가요.<br></span>
     참고용 기록 도구이며 투자 권유가 아닙니다. 투자 판단과 책임은 본인에게 있습니다.<br>
     <a href="https://mzmzkgu.github.io/jupjup/">← 소소한 재테크 작업실로</a>
   </p>
@@ -222,6 +223,11 @@
       <input type="number" inputmode="decimal" id="newRoundSeed" min="0" placeholder="10000">
       <div class="hint">B1~B5 매수 비중(10·15·20·25·30%)을 이 금액 기준으로 계산해요</div>
     </div>
+    <div class="field sheet-only">
+      <label for="newRoundSrc">복제할 탭</label>
+      <select id="newRoundSrc" class="plain-input"></select>
+      <div class="hint">이 탭을 복사해서 새 회차 탭을 만들고, 매매 데이터는 비워져요</div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" data-act="close-modal" data-close="addRoundBg">취소</button>
       <button class="btn-primary" data-act="submit-add-round">추가</button>
@@ -252,7 +258,7 @@
       <input type="number" inputmode="decimal" id="optSeed" min="0" placeholder="10000">
     </div>
 
-    <div class="opt-group">
+    <div class="opt-group local-only">
       <div class="opt-group-title">현재 회차</div>
       <div class="btn-row">
         <button class="btn-ghost" data-act="rename-round">이름 변경</button>
@@ -260,7 +266,7 @@
       </div>
     </div>
 
-    <div class="opt-group">
+    <div class="opt-group local-only">
       <div class="opt-group-title">백업</div>
       <div class="btn-row">
         <button class="btn-ghost" data-act="export-json">내보내기</button>
@@ -271,12 +277,17 @@
     </div>
 
     <div class="opt-group">
-      <div class="opt-group-title">구글 시트에서 가져오기 (1회)</div>
-      <input type="text" id="optScriptUrl" class="plain-input" placeholder="https://script.google.com/macros/s/.../exec" autocapitalize="off" autocomplete="off">
-      <div class="btn-row">
-        <button class="btn-ghost" data-act="import-sheet">시트 기록 가져오기</button>
+      <div class="opt-group-title">저장 위치 (둘 중 하나만 써요)</div>
+      <input type="text" id="optScriptUrl" class="plain-input" placeholder="비워 두면 이 브라우저에 저장" autocapitalize="off" autocomplete="off">
+      <div class="hint">
+        <b>비워 두면</b> 이 브라우저(localStorage)에 저장해요.<br>
+        <b>구글 시트용 Apps Script 웹앱 주소</b>(<code>https://script.google.com/macros/s/…/exec</code>)를 넣고 저장하면 그 시트에서 읽고 써요. 이때는 이 브라우저에 기록을 저장하지 않고, 주소를 다시 비우면 예전 로컬 기록이 그대로 보여요.<br>
+        이 주소를 아는 사람은 시트를 고칠 수 있으니 공유하지 마세요. 주소는 이 브라우저에만 저장돼요.
       </div>
-      <div class="hint">예전 Apps Script 주소로 시트의 회차를 읽어 와서 이 브라우저에 새로 저장해요. 시트는 바뀌지 않아요</div>
+      <div class="btn-row sheet-only">
+        <button class="btn-ghost" data-act="copy-sheet-local">시트 회차를 이 브라우저로 복사</button>
+      </div>
+      <div class="hint sheet-only">시트 모드에서 탭 이름 변경·삭제는 구글 시트에서 직접 해 주세요</div>
     </div>
 
     <div class="modal-actions">
