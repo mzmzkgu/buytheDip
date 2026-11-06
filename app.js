@@ -12,6 +12,10 @@ const STORAGE_KEY = 'buythedip_v1';
 // F&G(나스닥 항목)·VIX·달러-원은 마켓시그널이 약 1시간마다 갱신하는 signals.json에서, TQQQ 가격은 무한매수와 같은 Cloudflare Worker에서 가져온다.
 const SIGNALS_URL = 'https://mzmzkgu.github.io/marketTraffic/signals.json';
 const PRICE_URL = 'https://infinity-api.kgu3405.workers.dev/price?ticker=TQQQ';
+// 단계 도달 알림(웹 푸시): 공모주 청약 알림과 같은 Apps Script 웹앱·VAPID 공개키를 쓴다 (둘 다 공개되어도 되는 값).
+// 구독과 '끝낸 단계·평단·보유수량'은 구독 시트의 'fear' 탭에 저장되고, 집의 서버가 조건을 보고 푸시를 보낸다.
+const PUSH_URL = 'https://script.google.com/macros/s/AKfycbyMLW3c2ts5qJ0fnqExHebGXIGugSDEd9UCnoyT37LSatFSmKGnTmvtf2JnocvIANXStw/exec';
+const VAPID_PUBLIC = 'BFT4hZsdJLg9yo2JqyI08rVVKOuoLcNPxo_QJlTFv_YNDswr7FxNwDFOfEf-jV0wmMic2rPjZaciYLZadehZsgI';
 const FX_FALLBACK = 1450;
 const DEFAULT_SEED = 10000;
 
@@ -39,7 +43,7 @@ const RATINGS = {
 
 // ────────── 전역 상태 ──────────
 const store = {                 // localStorage 에 저장되는 부분
-  opts: { theme: 'light', currency: 'USD', scriptUrl: '' },   // scriptUrl 이 있으면 구글 시트 모드
+  opts: { theme: 'light', currency: 'USD', scriptUrl: '', fearPush: false },   // scriptUrl 이 있으면 구글 시트 모드
   rounds: [],                   // { id, name, seedUsd, trades: { B1: {date, price, qty, fx, fg, vix}, ... } }
   currentId: null,
   market: null,                 // 마지막으로 받은 시세 (오프라인·API 오류 때 대신 보여줌)
@@ -121,6 +125,7 @@ function load() {
       store.opts.theme = d.opts.theme === 'dark' ? 'dark' : 'light';
       store.opts.currency = d.opts.currency === 'KRW' ? 'KRW' : 'USD';
       store.opts.scriptUrl = validScriptUrl(d.opts.scriptUrl) ? d.opts.scriptUrl : '';
+      store.opts.fearPush = d.opts.fearPush === true;
     }
     if (typeof d.sheetTab === 'string') store.sheetTab = d.sheetTab;
     store.rounds = cleanRounds(d.rounds);
@@ -521,6 +526,7 @@ function renderAll() {
   renderAcct();
   renderDashboard();
   renderRecords();
+  schedulePushSync();
 }
 
 // ────────── 탭/모달 ──────────
@@ -676,6 +682,7 @@ function openOptions() {
   $('optSeed').value = c ? c.seedUsd : '';
   $('optSeed').disabled = !c;
   $('optScriptUrl').value = store.opts.scriptUrl || '';
+  renderPushUi();
   document.querySelectorAll('#segCurrency button').forEach(b => b.classList.toggle('active', b.dataset.v === store.opts.currency));
   openModal('optBg');
 }
@@ -754,6 +761,93 @@ async function importJson(file) {
   } finally {
     $('importFile').value = '';
   }
+}
+
+// ────────── 단계 도달 알림 (웹 푸시) ──────────
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const b64ToU8 = (s) => {
+  const b = (s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(b), c => c.charCodeAt(0));
+};
+async function pushRegistration() {                       // 사이트 공용 서비스워커(/sw.js)를 쓴다
+  if (!(await navigator.serviceWorker.getRegistration('/'))) await navigator.serviceWorker.register('/sw.js');
+  return navigator.serviceWorker.ready;
+}
+async function pushSubscription() {                       // 청약 알림으로 이미 만든 브라우저 구독이 있으면 그대로 쓴다
+  const reg = await pushRegistration();
+  return (await reg.pushManager.getSubscription())
+    || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(VAPID_PUBLIC) });
+}
+function pushState() {                                    // 서버가 판정에 쓰는 값: 끝낸 단계, 평단, 보유 수량 (선택한 회차 기준)
+  const round = cur(), c = calc(round);
+  return {
+    done: round ? STAGE_IDS.filter(id => round.trades[id]) : [],
+    avg: Math.round(c.buyAvg * 10000) / 10000,
+    held: Math.max(0, c.held),
+  };
+}
+async function pushPost(action, sub, state) {
+  const j = sub.toJSON();
+  const body = action === 'fear_off'
+    ? { action, endpoint: j.endpoint }
+    : { action, endpoint: j.endpoint, k: { p256dh: j.keys.p256dh, auth: j.keys.auth }, state };   // keys 가 아니라 k: 옛 스크립트가 청약 구독으로 잘못 저장하지 않게
+  const r = await fetch(PUSH_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(body) });   // 문자열 본문 = CORS 사전 요청 없음
+  const d = await r.json();
+  if (!d || !d.ok) throw new Error('알림 서버가 아직 준비되지 않았어요 (' + ((d && d.error) || r.status) + ')');
+}
+let pushSig = '', pushTimer = null;
+function schedulePushSync() {                              // 끝낸 단계/평단/보유수량이 바뀌면(또는 접속할 때 한 번) 서버에 알려 둔다
+  if (!store.opts.fearPush) return;
+  if (isSheet() && sheet.state !== 'ready') return;        // 시트를 읽는 중에는 빈 상태를 올리지 않는다
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(syncPush, 1200);
+}
+async function syncPush() {
+  if (!store.opts.fearPush || !pushSupported() || Notification.permission !== 'granted') return;
+  const st = pushState(), sig = JSON.stringify(st);
+  if (sig === pushSig) return;
+  try {
+    await pushPost('fear_sync', await pushSubscription(), st);
+    pushSig = sig;
+  } catch (e) { /* 다음에 화면이 바뀔 때 다시 시도 */ }
+}
+function renderPushUi() {
+  const on = store.opts.fearPush && pushSupported() && Notification.permission === 'granted';
+  $('optPush').checked = !!on;
+  $('pushTestRow').classList.toggle('hidden', !on);
+}
+async function togglePush(e) {
+  const on = e.target.checked;
+  try {
+    if (on) {
+      if (!pushSupported()) throw new Error('이 브라우저는 알림을 지원하지 않아요 (아이폰은 홈 화면에 추가한 뒤 쓸 수 있어요)');
+      if ((await Notification.requestPermission()) !== 'granted') throw new Error('알림이 차단돼 있어요. 브라우저 설정에서 허용해 주세요');
+      const st = pushState();
+      await pushPost('fear_sync', await pushSubscription(), st);
+      store.opts.fearPush = true;
+      pushSig = JSON.stringify(st);
+      toast('알림을 켰어요', 'ok');
+    } else {                                               // 끄기: 공포매매 명단에서만 빼고 브라우저 구독은 그대로 둔다 (청약 알림과 같이 쓰므로)
+      const reg = await navigator.serviceWorker.getRegistration('/');
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) await pushPost('fear_off', sub);
+      store.opts.fearPush = false;
+      pushSig = '';
+      toast('알림을 껐어요', 'ok');
+    }
+    save();
+  } catch (err) {
+    e.target.checked = !on;                                // 실패하면 스위치를 원래대로
+    toast((on ? '알림을 켜지 못했어요: ' : '알림을 끄지 못했어요: ') + err.message, 'err');
+  }
+  renderPushUi();
+}
+async function testPush() {                                // 이 기기에서 팝업이 뜨는지만 확인 (서버를 거치지 않음)
+  try {
+    if (!pushSupported() || Notification.permission !== 'granted') throw new Error('알림 권한이 필요해요');
+    const reg = await pushRegistration();
+    await reg.showNotification('공포매매 · 알림 테스트', { body: '이렇게 팝업으로 알려드려요', icon: '/assets/images/icon-192.png', tag: 'fear-test', data: { url: '/buytheDip/' } });
+  } catch (err) { toast('테스트 실패: ' + err.message, 'err'); }
 }
 
 // ────────── 구글 시트 모드 (Apps Script 웹앱) ──────────
@@ -860,6 +954,7 @@ const ACTIONS = {
   'export-json':     () => exportJson(),
   'import-json':     () => $('importFile').click(),
   'copy-sheet-local': () => copySheetToLocal(),
+  'test-push':       () => testPush(),
 };
 
 document.addEventListener('click', (e) => {
@@ -878,6 +973,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 $('optDark').addEventListener('change', (e) => setTheme(e.target.checked));
+$('optPush').addEventListener('change', togglePush);
 $('optRound').addEventListener('change', (e) => {            // 옵션의 회차선택: 고르면 바로 그 회차로 바뀜
   if (!e.target.value) return;
   ds().currentId = e.target.value;
