@@ -277,17 +277,11 @@
     </div>
 
     <div class="opt-group">
-      <div class="opt-group-title">저장 위치 (둘 중 하나만 써요)</div>
-      <input type="text" id="optScriptUrl" class="plain-input" placeholder="비워 두면 이 브라우저에 저장" autocapitalize="off" autocomplete="off">
-      <div class="hint">
-        <b>비워 두면</b> 이 브라우저(localStorage)에 저장해요.<br>
-        <b>구글 시트용 Apps Script 웹앱 주소</b>(<code>https://script.google.com/macros/s/…/exec</code>)를 넣고 저장하면 그 시트에서 읽고 써요. 이때는 이 브라우저에 기록을 저장하지 않고, 주소를 다시 비우면 예전 로컬 기록이 그대로 보여요.<br>
-        이 주소를 아는 사람은 시트를 고칠 수 있으니 공유하지 마세요. 주소는 이 브라우저에만 저장돼요.
-      </div>
+      <div class="opt-group-title">저장 위치 (비워두면 현재 브라우저에 저장됩니다)</div>
+      <input type="text" id="optScriptUrl" class="plain-input" placeholder="https://script.google.com/.../exec" autocapitalize="off" autocomplete="off">
       <div class="btn-row sheet-only">
         <button class="btn-ghost" data-act="copy-sheet-local">시트 회차를 이 브라우저로 복사</button>
       </div>
-      <div class="hint sheet-only">시트 모드에서 탭 이름 변경·삭제는 구글 시트에서 직접 해 주세요</div>
     </div>
 
     <div class="modal-actions">
