@@ -3,17 +3,16 @@
 // - 배포: 웹 앱 / 실행 계정 = 나 / 액세스 = 모든 사용자
 // - 브라우저는 text/plain 으로 JSON 을 POST 한다.
 //   1) 공모주 청약 알림 (탭 'subs'):  {"action":"subscribe"|"unsubscribe","endpoint":"...","keys":{"p256dh":"...","auth":"..."}}
-//   2) 공포매매 단계 도달 알림 (탭 'fear'):
-//        {"action":"fear_sync","endpoint":"...","k":{"p256dh":"...","auth":"..."},"state":{"done":["B1"],"avg":55.9,"held":45}}
+//   2) 공포매매 단계 도달 알림 (탭 'fear', 구독 정보만 저장 — 거래 기록·끝낸 단계 같은 값은 받지도 저장하지도 않는다):
+//        {"action":"fear_sync","endpoint":"...","k":{"p256dh":"...","auth":"..."}}
 //        {"action":"fear_off","endpoint":"..."}
 //      (키 이름을 keys 가 아니라 k 로 쓰는 이유: 이 스크립트의 옛 버전이 fear_* 요청을 청약 구독으로 잘못 저장하지 않게)
 
 var TAB = 'subs';
 var MAX_SUBS = 3000;       // 저장 상한
 var MAX_PER_MIN = 60;      // 분당 요청 상한 (스크립트 전체)
-var FEAR_TAB = 'fear';     // 공포매매 알림 구독 (endpoint, p256dh, auth, state, updated)
+var FEAR_TAB = 'fear';     // 공포매매 알림 구독 (endpoint, p256dh, auth, updated)
 var MAX_FEAR = 300;
-var STAGES = ['B1', 'B2', 'B3', 'B4', 'B5', 'S1', 'S2', 'S3'];
 // 알려진 푸시 서비스 주소만 허용 (엉뚱한 주소를 저장해 서버가 호출하게 만드는 공격 방지)
 var ALLOWED = [
   /^https:\/\/fcm\.googleapis\.com\/.+/,
@@ -52,25 +51,10 @@ function fearSheet_() {
   var sh = ss.getSheetByName(FEAR_TAB);
   if (!sh) {
     sh = ss.insertSheet(FEAR_TAB);
-    sh.getRange('A:E').setNumberFormat('@');
-    sh.appendRow(['endpoint', 'p256dh', 'auth', 'state', 'updated']);
+    sh.getRange('A:D').setNumberFormat('@');
+    sh.appendRow(['endpoint', 'p256dh', 'auth', 'updated']);
   }
   return sh;
-}
-
-// 앱이 보낸 상태({done:[끝낸 단계], avg:평단, held:보유수량})를 검증해서 JSON 문자열로 정리한다
-function fearState_(st) {
-  st = st || {};
-  var src = Object.prototype.toString.call(st.done) === '[object Array]' ? st.done : [];
-  var done = [];
-  for (var i = 0; i < src.length; i++) {
-    var s = String(src[i]);
-    if (STAGES.indexOf(s) >= 0 && done.indexOf(s) < 0) done.push(s);
-  }
-  var avg = Number(st.avg), held = Number(st.held);
-  if (!isFinite(avg) || avg < 0 || avg > 1000000) avg = 0;
-  if (!isFinite(held) || held < 0 || held > 100000000) held = 0;
-  return JSON.stringify({ done: done, avg: Math.round(avg * 10000) / 10000, held: Math.round(held * 10000) / 10000 });
 }
 
 function handleFear_(d, ep) {
@@ -90,9 +74,9 @@ function handleFear_(d, ep) {
   if (!/^[A-Za-z0-9_-]{80,100}$/.test(p) || !/^[A-Za-z0-9_-]{20,30}$/.test(a)) {
     return json_({ ok: false, error: 'bad keys' });
   }
-  var row = [ep, p, a, fearState_(d.state), new Date()];
-  if (idx > 0) {                                       // 이미 있으면 키와 상태만 갱신
-    sh.getRange(idx, 1, 1, 5).setValues([row]);
+  var row = [ep, p, a, new Date()];
+  if (idx > 0) {                                       // 이미 있으면 키만 갱신
+    sh.getRange(idx, 1, 1, 4).setValues([row]);
     return json_({ ok: true, updated: true });
   }
   if (eps.length >= MAX_FEAR) return json_({ ok: false, error: 'full' });

@@ -13,7 +13,8 @@ const STORAGE_KEY = 'buythedip_v1';
 const SIGNALS_URL = 'https://mzmzkgu.github.io/marketTraffic/signals.json';
 const PRICE_URL = 'https://infinity-api.kgu3405.workers.dev/price?ticker=TQQQ';
 // 단계 도달 알림(웹 푸시): 공모주 청약 알림과 같은 Apps Script 웹앱·VAPID 공개키를 쓴다 (둘 다 공개되어도 되는 값).
-// 구독과 '끝낸 단계·평단·보유수량'은 구독 시트의 'fear' 탭에 저장되고, 집의 서버가 조건을 보고 푸시를 보낸다.
+// 서버(구독 시트의 'fear' 탭)에는 구독 정보만 올린다. 끝낸 단계·평단·보유수량은 이 기기의 IndexedDB 에만 두고,
+// 푸시를 받은 서비스워커(sw.js)가 그 값을 읽어 끝난 단계는 숨긴다.
 const PUSH_URL = 'https://script.google.com/macros/s/AKfycbyMLW3c2ts5qJ0fnqExHebGXIGugSDEd9UCnoyT37LSatFSmKGnTmvtf2JnocvIANXStw/exec';
 const VAPID_PUBLIC = 'BFT4hZsdJLg9yo2JqyI08rVVKOuoLcNPxo_QJlTFv_YNDswr7FxNwDFOfEf-jV0wmMic2rPjZaciYLZadehZsgI';
 const FX_FALLBACK = 1450;
@@ -778,7 +779,7 @@ async function pushSubscription() {                       // 청약 알림으로
   return (await reg.pushManager.getSubscription())
     || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(VAPID_PUBLIC) });
 }
-function pushState() {                                    // 서버가 판정에 쓰는 값: 끝낸 단계, 평단, 보유 수량 (선택한 회차 기준)
+function pushState() {                                    // 기기에서만 쓰는 값: 끝낸 단계, 평단, 보유 수량 (선택한 회차 기준)
   const round = cur(), c = calc(round);
   return {
     done: round ? STAGE_IDS.filter(id => round.trades[id]) : [],
@@ -786,29 +787,50 @@ function pushState() {                                    // 서버가 판정에
     held: Math.max(0, c.held),
   };
 }
-async function pushPost(action, sub, state) {
+// 기기 안 저장소: 서비스워커가 푸시를 받았을 때 읽는 값 (서버로 보내지 않는다)
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open('fearbuy', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbPut(key, val) {
+  const db = await idbOpen();
+  await new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    val === undefined ? tx.objectStore('kv').delete(key) : tx.objectStore('kv').put(val, key);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+  db.close();
+}
+async function pushPost(action, sub) {                     // 서버에는 구독 정보(주소·키)만 보낸다
   const j = sub.toJSON();
   const body = action === 'fear_off'
     ? { action, endpoint: j.endpoint }
-    : { action, endpoint: j.endpoint, k: { p256dh: j.keys.p256dh, auth: j.keys.auth }, state };   // keys 가 아니라 k: 옛 스크립트가 청약 구독으로 잘못 저장하지 않게
+    : { action, endpoint: j.endpoint, k: { p256dh: j.keys.p256dh, auth: j.keys.auth } };   // keys 가 아니라 k: 옛 스크립트가 청약 구독으로 잘못 저장하지 않게
   const r = await fetch(PUSH_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(body) });   // 문자열 본문 = CORS 사전 요청 없음
   const d = await r.json();
   if (!d || !d.ok) throw new Error('알림 서버가 아직 준비되지 않았어요 (' + ((d && d.error) || r.status) + ')');
 }
 let pushSig = '', pushTimer = null;
-function schedulePushSync() {                              // 끝낸 단계/평단/보유수량이 바뀌면(또는 접속할 때 한 번) 서버에 알려 둔다
+function schedulePushSync() {                              // 화면이 바뀔 때마다: 기기 안 상태를 갱신하고, 구독은 하루 한 번만 서버에 다시 알린다
   if (!store.opts.fearPush) return;
-  if (isSheet() && sheet.state !== 'ready') return;        // 시트를 읽는 중에는 빈 상태를 올리지 않는다
+  if (isSheet() && sheet.state !== 'ready') return;        // 시트를 읽는 중에는 빈 상태를 적지 않는다
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(syncPush, 1200);
+  pushTimer = setTimeout(syncPush, 600);
 }
 async function syncPush() {
   if (!store.opts.fearPush || !pushSupported() || Notification.permission !== 'granted') return;
   const st = pushState(), sig = JSON.stringify(st);
-  if (sig === pushSig) return;
   try {
-    await pushPost('fear_sync', await pushSubscription(), st);
-    pushSig = sig;
+    if (sig !== pushSig) { await idbPut('alert', { ...st, at: Date.now() }); pushSig = sig; }
+    const last = Number(localStorage.getItem('buythedip_push_at') || 0);
+    if (Date.now() - last > 864e5) {                       // 구독 정보 갱신(하루 1회)
+      await pushPost('fear_sync', await pushSubscription());
+      localStorage.setItem('buythedip_push_at', String(Date.now()));
+    }
   } catch (e) { /* 다음에 화면이 바뀔 때 다시 시도 */ }
 }
 function renderPushUi() {
@@ -823,7 +845,9 @@ async function togglePush(e) {
       if (!pushSupported()) throw new Error('이 브라우저는 알림을 지원하지 않아요 (아이폰은 홈 화면에 추가한 뒤 쓸 수 있어요)');
       if ((await Notification.requestPermission()) !== 'granted') throw new Error('알림이 차단돼 있어요. 브라우저 설정에서 허용해 주세요');
       const st = pushState();
-      await pushPost('fear_sync', await pushSubscription(), st);
+      await idbPut('alert', { ...st, at: Date.now() });    // 기기 안에 먼저 적어 둔다 (서비스워커가 읽음)
+      await pushPost('fear_sync', await pushSubscription());
+      localStorage.setItem('buythedip_push_at', String(Date.now()));
       store.opts.fearPush = true;
       pushSig = JSON.stringify(st);
       toast('알림을 켰어요', 'ok');
@@ -831,8 +855,10 @@ async function togglePush(e) {
       const reg = await navigator.serviceWorker.getRegistration('/');
       const sub = reg && await reg.pushManager.getSubscription();
       if (sub) await pushPost('fear_off', sub);
+      await idbPut('alert', undefined);                    // 기기 안 상태도 지움
       store.opts.fearPush = false;
       pushSig = '';
+      localStorage.removeItem('buythedip_push_at');
       toast('알림을 껐어요', 'ok');
     }
     save();
