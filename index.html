@@ -3,16 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>줍줍매매 — TQQQ F&G 매매가이드</title>
+<title>공포매매 — TQQQ F&G 매매가이드</title>
 <meta name="description" content="공포탐욕지수(F&G)와 VIX로 TQQQ 분할매수(B1~B5)·분할매도(S1~S3) 타이밍을 알려주고 매매 기록을 이 브라우저에 저장하는 도구입니다.">
 <meta name="theme-color" content="#3182f6">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 
 <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
-        integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g"
-        crossorigin="anonymous"></script>
+<script src="vendor/chart.umd.min.js"></script>
 <link rel="stylesheet" href="style.css">
 <script>
   // 첫 화면이 번쩍이지 않도록 저장된 테마를 먼저 적용
@@ -29,8 +27,8 @@
   <!-- 헤더 -->
   <div class="app-header">
     <div class="brand">
-      <div class="brand-logo">줍줍</div>
-      <div>줍줍매매<span class="brand-sub">TQQQ</span><span class="mode-chip" id="modeChip" title="저장 위치">로컬</span></div>
+      <div class="brand-logo">공포</div>
+      <div>공포매매<span class="brand-sub">TQQQ</span><span class="mode-chip" id="modeChip" title="저장 위치">로컬</span></div>
     </div>
     <div class="header-btns">
       <button class="icon-btn" id="refreshBtn" data-act="refresh" title="시세 갱신" aria-label="시세 갱신">
@@ -100,10 +98,10 @@
     <div class="card">
       <div class="card-title"><span class="ct-ic ic-blue"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/></svg></span><span class="ct-t">포지션 요약</span><span class="round-pill" id="roundPill">—</span></div>
       <div class="pos-list">
-        <div class="pos-row"><span class="k">총 투자금</span><span class="v" id="sumInvest">투자 전</span></div>
         <div class="pos-row"><span class="k">평균매수</span><span class="v"><span id="sumAvg">—</span><span class="sep">|</span><span id="sumQty">—</span></span></div>
-        <div class="pos-row"><span class="k">투자시드</span><span class="v" id="sumSeed">—</span></div>
-        <div class="pos-row"><span class="k">평가금액</span><span class="v"><span id="sumEval">—</span><span class="delta hidden" id="sumGain"></span></span></div>
+        <div class="pos-row"><span class="k">투자금액</span><span class="v" id="sumInvest">투자 전</span></div>
+        <div class="pos-row"><span class="k">평가금액</span><span class="v" id="sumEval">—</span></div>
+        <div class="pos-row"><span class="k">평가손익</span><span class="v"><span id="sumGain" class="dash">—</span></span></div>
       </div>
     </div>
 
@@ -117,8 +115,8 @@
     </div>
 
     <div class="card">
-      <div class="card-title"><span class="ct-ic ic-green"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></span><span class="ct-t">자금 흐름</span><span class="card-title-sub">투자시드 vs 평가금</span></div>
-      <div class="chart-wrap"><canvas id="dashChart"></canvas></div>
+      <div class="card-title"><span class="ct-ic ic-green"><svg fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></span><span class="ct-t">자금 흐름</span><span class="card-title-sub">투자금액 vs 평가금액</span></div>
+      <div class="chart-wrap"><canvas id="dashChart"></canvas><div class="chart-msg hidden" id="chartMsg"></div></div>
     </div>
 
   </div>

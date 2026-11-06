@@ -1,7 +1,7 @@
-# 줍줍매매 (buytheDip)
+# 공포매매 (buytheDip)
 
 공포탐욕지수(F&G)와 VIX로 **TQQQ 분할매수(B1~B5)·분할매도(S1~S3)** 타이밍을 알려주고, 매매 기록을 관리하는 웹 도구입니다.
-[소소한 재테크 작업실](https://mzmzkgu.github.io/jupjup/)의 '줍줍매매' 탭에서 소개합니다.
+[소소한 재테크 작업실](https://mzmzkgu.github.io/fearbuy/)의 '공포매매' 탭에서 소개합니다.
 
 - 주소: https://mzmzkgu.github.io/buytheDip/
 - 정적 페이지(`index.html`, `style.css`, `app.js`)라서 빌드 없이 GitHub Pages로 서비스합니다.
@@ -22,7 +22,7 @@
 | S2 | F&G ≥ 70 그리고 수익률 ≥ 20% | 30% |
 | S3 | F&G ≥ 75 (수익률 0% 이상) | 50% |
 
-규칙 숫자는 `app.js`의 `BUY_DEF`, `SELL_DEF`에 있습니다. 바꾸면 홈페이지의 줍줍매매 소개 글도 같이 고칩니다.
+규칙 숫자는 `app.js`의 `BUY_DEF`, `SELL_DEF`에 있습니다. 바꾸면 홈페이지의 공포매매 소개 글도 같이 고칩니다.
 
 ## 시세는 어디서 가져오나
 
@@ -68,3 +68,7 @@ python3 -m http.server 8123   # http://127.0.0.1:8123/
 ```
 
 투자 권유가 아닌 참고용 기록 도구입니다.
+
+## 포함된 라이브러리
+
+- `vendor/chart.umd.min.js`: [Chart.js](https://www.chartjs.org/) 4.4.0 (MIT 라이선스). 외부 CDN이 막히는 환경에서도 차트가 그려지도록 같은 도메인에 함께 둡니다.

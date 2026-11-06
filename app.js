@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════
-   줍줍매매 (buytheDip) — TQQQ F&G 매매가이드
+   공포매매 (buytheDip) — TQQQ F&G 매매가이드
    - 저장소는 둘 중 하나만 쓴다. 옵션의 Apps Script 웹앱 주소가 비어 있으면 localStorage('buythedip_v1'),
      채워져 있으면 그 구글 시트(listtabs/read/write/deleterow/copytab/settotalseed)에 읽고 쓴다.
    - 시세는 마켓시그널의 signals.json(F&G·VIX·환율)과 무한매수가 쓰는 Cloudflare Worker(TQQQ 가격)에서 읽어 온다.
@@ -350,17 +350,16 @@ function renderDashboard() {
   inv.classList.toggle('muted', !hasBuy);
   $('sumAvg').textContent = hasBuy ? fmtUsd(c.buyAvg) : '—';
   $('sumQty').textContent = hasBuy ? fmt(c.isAllSold ? c.buyQty : c.held, 0) + '주' : '—';
-  // 투자시드: 진행 중이면 회차에 정한 시드, 사이클이 끝났으면 실제 투자금
-  $('sumSeed').textContent = c.isAllSold ? money(c.buyAmt) : (round ? money(round.seedUsd) : '—');
   $('sumEval').textContent = hasBuy ? money(c.evalUsd) : '—';
 
-  const g = $('sumGain');                            // 평가금액 옆 [+$272.05 (+12.1%)]
+  const g = $('sumGain');                            // 평가손익: [+$272.05 (+12.1%)] / [-$244.72 (-9.7%)]
   if (hasBuy && c.gainUsd != null) {
     const up = c.gainUsd >= 0;
     g.textContent = (up ? '+' : '-') + money(Math.abs(c.gainUsd)) + ' (' + (up ? '+' : '-') + Math.abs(c.profitPct).toFixed(1) + '%)';
     g.className = 'delta ' + (up ? 'up' : 'down');
   } else {
-    g.className = 'delta hidden';
+    g.textContent = '—';
+    g.className = 'dash';
   }
 
   renderStagePills('buyStages', BUY_DEF, c, false);
@@ -408,7 +407,11 @@ function renderStatus(st) {                           // 말풍선 모양 상태
 // ────────── 렌더: 차트 ──────────
 function renderChart(c) {
   if (ui.chart) { ui.chart.destroy(); ui.chart = null; }
-  if (typeof Chart === 'undefined') return;       // CDN 을 못 불러온 경우
+  const msg = $('chartMsg');                      // 못 그리는 이유를 빈 칸 대신 알려준다
+  const hasTrades = !!(cur() && Object.keys(cur().trades).length);
+  msg.textContent = typeof Chart === 'undefined' ? '차트를 불러오지 못했어요. 새로고침해 보세요.' : (hasTrades ? '' : '매매 기록을 입력하면 자금 흐름이 그려져요.');
+  msg.classList.toggle('hidden', !msg.textContent);
+  if (typeof Chart === 'undefined') return;
   const round = cur();
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const useKrw = store.opts.currency === 'KRW';
@@ -448,8 +451,8 @@ function renderChart(c) {
     data: {
       labels,
       datasets: [
-        { label: '평가금', data: valuation.map(toDisp), borderColor: '#f04438', backgroundColor: 'rgba(240,68,56,.15)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5 },
-        { label: '투자시드', data: invested.map(toDisp), borderColor: css('--text'), backgroundColor: 'rgba(128,128,128,.12)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5 },
+        { label: '평가금액', data: valuation.map(toDisp), borderColor: '#f04438', backgroundColor: 'rgba(240,68,56,.15)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5 },
+        { label: '투자금액', data: invested.map(toDisp), borderColor: css('--text'), backgroundColor: 'rgba(128,128,128,.12)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5 },
       ],
     },
     options: {
@@ -736,7 +739,7 @@ async function importJson(file) {
   if (!file) return;
   try {
     const d = JSON.parse(await file.text());
-    if (d.app !== 'buythedip') throw new Error('줍줍매매 백업 파일이 아니에요');
+    if (d.app !== 'buythedip') throw new Error('공포매매 백업 파일이 아니에요');
     const rounds = cleanRounds(d.rounds);
     if (!rounds.length) throw new Error('가져올 회차가 없어요');
     if (store.rounds.length && !confirm(`지금 저장된 회차 ${store.rounds.length}개를 지우고 백업의 ${rounds.length}개로 바꿀까요?`)) return;
@@ -881,6 +884,9 @@ $('optRound').addEventListener('change', (e) => {            // 옵션의 회차
   if (isSheet()) store.sheetTab = e.target.value;
   save();
   renderAll();
+  const c = cur();                                             // 총 시드 칸도 고른 회차의 값으로 (저장 시 이전 회차 값이 덮어쓰지 않도록)
+  $('optSeed').value = c ? c.seedUsd : '';
+  $('optSeed').disabled = !c;
 });
 $('importFile').addEventListener('change', (e) => importJson(e.target.files[0]));
 
