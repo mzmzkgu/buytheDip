@@ -454,7 +454,7 @@ select.plain-input { font-weight: 600; }
 .opt-group.first { border-top: none; margin-top: 0; padding-top: 12px; }
 
 .trade-row .d, .trade-row .p, .trade-row .cond { white-space: nowrap; }   /* 날짜·가격/수량·조건식은 한 줄 */
-.trade-row .cond { grid-column: span 2; }                                /* 아직 기록 전인 단계: 매매일 칸까지 합쳐 조건식을 한 줄로 */
+.trade-row .cond { grid-column: span 2; text-align: center; }                                /* 아직 기록 전인 단계: 매매일 칸까지 합쳐 조건식을 한 줄로 */
 .trade-row .ratio { display: flex; flex-direction: column; line-height: 1.35; }   /* 비중: % 와 금액을 항상 두 줄로 */
 .trade-row .ratio .amt { font-size: 11px; opacity: .9; }
 @media (max-width: 400px) {   /* 폰: 좌우 여백과 칸 간격을 조금 줄여 가격/수량이 옆 칸에 붙지 않게 */
