@@ -478,11 +478,14 @@ function renderChart(c) {
 
 // ────────── 렌더: 매매기록 탭 ──────────
 function rowHtml(def, t, hint, ratioStr) {
+  // 기록된 단계는 매매일·가격/수량 두 칸, 아직 기록 전인 단계는 조건식 한 칸(두 칸 폭)으로 보여준다
+  const mid = t
+    ? `<div class="d">${t.date ? esc(t.date.slice(2)) : '—'}</div><div class="p">$${fmt(t.price, 2)} × ${fmt(t.qty, 0)}주</div>`
+    : `<div class="cond">${hint}</div>`;
   return `
     <div><div class="stage-badge">${def.label}</div></div>
-    <div>${t && t.date ? esc(t.date.slice(2)) : '—'}</div>
-    <div>${t ? `$${fmt(t.price, 2)} × ${fmt(t.qty, 0)}주` : hint}</div>
-    <div>${ratioStr}</div>
+    ${mid}
+    <div class="ratio">${ratioStr}</div>
     <div><button class="action-btn ${t ? '' : 'primary'}" data-act="open-trade" data-stage="${def.label}">${t ? '수정' : '입력'}</button></div>`;
 }
 
