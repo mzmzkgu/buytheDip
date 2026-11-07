@@ -477,12 +477,16 @@ function renderChart(c) {
 }
 
 // ────────── 렌더: 매매기록 탭 ──────────
-function rowHtml(def, t, hint, ratioStr) {
+function rowHtml(def, t, hint, pct, amt) {
+  // 기록된 단계는 매매일·가격/수량 두 칸, 아직 기록 전인 단계는 조건식 한 칸(두 칸 폭)으로 보여준다
+  // 매매일은 폭을 줄이려고 26.10.01 형식, 비중은 % 와 금액을 항상 두 줄로 보여준다
+  const mid = t
+    ? `<div class="d">${t.date ? esc(t.date.slice(2).replace(/-/g, '.')) : '—'}</div><div class="p">$${fmt(t.price, 2)} × ${fmt(t.qty, 0)}주</div>`
+    : `<div class="cond">${hint}</div>`;
   return `
     <div><div class="stage-badge">${def.label}</div></div>
-    <div>${t && t.date ? esc(t.date.slice(2)) : '—'}</div>
-    <div>${t ? `$${fmt(t.price, 2)} × ${fmt(t.qty, 0)}주` : hint}</div>
-    <div>${ratioStr}</div>
+    ${mid}
+    <div class="ratio"><span class="pct">${pct}</span>${amt ? `<span class="amt">${amt}</span>` : ''}</div>
     <div><button class="action-btn ${t ? '' : 'primary'}" data-act="open-trade" data-stage="${def.label}">${t ? '수정' : '입력'}</button></div>`;
 }
 
@@ -499,7 +503,7 @@ function renderRecords() {
     const el = document.createElement('div');
     el.className = 'trade-row' + (t ? ' done' : ready ? ' ready' : '');
     const hint = `F&G ≤${d.fg} ${d.op === 'OR' ? '또는' : '&amp;'} VIX ≥${d.vix}`;
-    el.innerHTML = rowHtml(d, t, hint, `${(d.ratio * 100).toFixed(0)}% ($${fmt(seed * d.ratio, 0)})`);
+    el.innerHTML = rowHtml(d, t, hint, `${(d.ratio * 100).toFixed(0)}%`, `($${fmt(seed * d.ratio, 0)})`);
     buyBox.appendChild(el);
   });
   $('buyCount').textContent = `${c.buyDone}/${BUY_DEF.length}`;
@@ -515,7 +519,7 @@ function renderRecords() {
     const ready = !t && sellCond(d, market, c);
     const amt = baseUsd * d.ratio;
     const el = document.createElement('div');
-    el.innerHTML = rowHtml(d, t, `F&G ≥${d.fg} &amp; 수익 ≥${d.profit}%`, `${(d.ratio * 100).toFixed(0)}% ${amt > 0 ? '($' + fmt(amt, 0) + ')' : ''}`);
+    el.innerHTML = rowHtml(d, t, `F&G ≥${d.fg} &amp; 수익 ≥${d.profit}%`, `${(d.ratio * 100).toFixed(0)}%`, amt > 0 ? `($${fmt(amt, 0)})` : '');
     el.className = 'trade-row' + (t ? ' done sell' : ready ? ' ready' : '');
     sellBox.appendChild(el);
   });
